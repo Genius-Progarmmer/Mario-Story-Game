@@ -1,0 +1,2 @@
+# The only third-party library the game needs. Tested with pygame 2.6.1 on Python 3.12.
+pygame>=2.5

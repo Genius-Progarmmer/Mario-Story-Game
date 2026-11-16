@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node (browser tests). Reinstall with: cd tests && npm install
+node_modules/
+
+# Local save data from playing the game (yours, not source code)
+saves/
+*.tmp
+
+# Screenshots the browser test can produce
+tests/shots/
+*.png
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs from background runs
+nohup.out
+*.log
+
+# personal files
+bug.txt

@@ -1,0 +1,6 @@
+{
+  "name": "mario-game-tests",
+  "private": true,
+  "description": "Only needed for tests/web_browser_test.js (real-browser phone test).",
+  "dependencies": { "puppeteer-core": "^24.0.0", "@sparticuz/chromium": "^138.0.0" }
+}
