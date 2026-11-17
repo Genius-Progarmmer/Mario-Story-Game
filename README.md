@@ -44,6 +44,25 @@ use Share > Add to Home Screen and open the game from that icon. Its progress is
 | `T` | Switch to the next character you have unlocked (Mario > Luigi > Princess > Yoshi > Mario...). The character you leave takes the place of the one you switch to, so nobody is ever shown twice |
 | `Esc` | Pause the game |
 
+## Debug mode (developer only)
+
+A password-protected mode to jump to **any level 1-50** and look for bugs. It exists only where a private `.env` file sets a password.
+
+1. Copy `.env.example` to `.env` and set `DEBUG_PASSWORD=...` (`.env` is in `.gitignore`: it is never committed).
+2. **Python:** nothing else. **Web:** run `python make_env_js.py` once (and again whenever you change `.env`). It writes
+   `env.js`, which `web.html` loads (also in `.gitignore`).
+3. In the main menu a **DEBUG** button appears. Enter the password, then pick a level: arrow keys (up / down = 10), type a
+   number, or click / tap a level; `Enter` starts it. Boss levels are red.
+4. While playing, **L** (or the **LEAVE LEVEL** button in the web version, or `Q` in the pause menu) goes back to the level
+   picker. Reaching the goal or losing all lives also returns to the picker. `Esc` in the picker leaves debug mode.
+
+A debug level always starts from its beginning with 3 lives, and **debug mode never writes the save file**, so your real
+progress is untouched. A red *DEBUG* tag is always visible while playing.
+
+> **Security:** without a `.env` there is no DEBUG button at all. In the **web** version the password is readable by anyone
+> who can open your page or `env.js` (a browser cannot hide it), so it is a convenience for debugging on your own computer.
+> **Never upload `env.js` to a public website.** Keep `bug.txt` (also in `.gitignore`) for your own bug notes.
+
 In `web.html` every command (jump, double jump, dash, punch, switch hero, pause...) runs **once per key press**:
 holding a key down does not repeat it (no double jump from a held `Space`, no dash from a held arrow, no hero
 switching storm from a held `T`). Walking and flying still follow the held keys.

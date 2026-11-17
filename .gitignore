@@ -1,29 +1,30 @@
-# Python
+# ---- Secrets and private notes (NEVER commit these) ----
+.env
+env.js
+bug.txt
+
+# ---- Python ----
 __pycache__/
 *.pyc
 .venv/
 venv/
 
-# Node (browser tests). Reinstall with: cd tests && npm install
+# ---- Node (browser tests). Reinstall with: cd tests && npm install ----
 node_modules/
 
-# Local save data from playing the game (yours, not source code)
+# ---- Local save data from playing the game (yours, not source code) ----
 saves/
 *.tmp
 
-# Screenshots the browser test can produce
+# ---- Screenshots made by the browser test ----
 tests/shots/
-*.png
 
-# Editor / OS files
+# ---- Editor / OS files ----
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# Logs from background runs
+# ---- Logs from background runs ----
 nohup.out
 *.log
-
-# personal files
-bug.txt

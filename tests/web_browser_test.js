@@ -24,6 +24,9 @@ async function open(browser, w, h, { touch = true } = {}) {
   await page.setViewport({ width: w, height: h, deviceScaleFactor: 2, isMobile: touch, hasTouch: touch });
   if (touch) await page.setUserAgent(PHONE_UA);
   await page.goto('file://' + htmlFile); await sleep(500);
+  // web.html may have loaded the developer's private env.js (the debug password), which adds a DEBUG button. Every test
+  // starts WITHOUT it, so the results never depend on a private file that only exists on one computer. The debug tests switch it on themselves.
+  await page.evaluate(`window.DEBUG_PASSWORD=undefined; showMenu();`);
   return page;
 }
 const rect = (page, id) => page.evaluate(id => { const e = document.getElementById(id), c = getComputedStyle(e), r = e.getBoundingClientRect(); return { display: c.display, vis: c.visibility, x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; }, id);
@@ -207,6 +210,41 @@ async function startGame(page, w, h) {
     await press('KeyQ'); T('save error: after the problem is gone, Q saves and goes back to the menu', await g(page, `STATE==='falling_text'&&faNext==='menu'&&!!lg()`));
     if (shots) await page.screenshot({ path: path.join(shots, 'desktop-keyboard.png') });
     T('keyboard run: no JavaScript error', page.errors.length === 0, page.errors.join('|'));
+    await page.close();
+  }
+  // ================= DEBUG MODE in the real browser (real clicks and real typing) =================
+  {
+    const page = await open(browser, 1280, 720, { touch: false });
+    // (the password normally comes from env.js, made from .env; here it is set directly so the test does not need that private file)
+    await page.evaluate(`window.DEBUG_PASSWORD='8830'; sg(7,2,null,9,null,0); showMenu();`);
+    const saved = await g(page, `localStorage.getItem(SAVE_KEY)`);
+    const vis = (id) => g(page, `getComputedStyle(document.getElementById('${id}')).display`);
+    T('debug (browser): the DEBUG button is visible in the menu', await vis('btnDebug') !== 'none');
+    await page.click('#btnDebug'); await waitUntil(page, `STATE==='debug_pw'`);
+    T('debug (browser): clicking DEBUG shows the password box', await g(page, `STATE`) === 'debug_pw' && await vis('dbg') !== 'none');
+    T('debug (browser): the password box hides what is typed', await g(page, `document.getElementById('dbgPw').type`) === 'password');
+    await page.type('#dbgPw', '1234'); await page.keyboard.press('Enter');
+    T('debug (browser): a wrong password is refused with a message', await g(page, `STATE`) === 'debug_pw' && /WRONG/.test(await g(page, `document.getElementById('dbgPwMsg').textContent`)));
+    T('debug (browser): ...and the box is emptied', await g(page, `document.getElementById('dbgPw').value`) === '');
+    await page.type('#dbgPw', '8830'); await page.keyboard.press('Enter'); await waitUntil(page, `STATE==='debug_pick'`);
+    T('debug (browser): the right password opens the level picker with 50 levels', await g(page, `STATE`) === 'debug_pick' && await g(page, `document.querySelectorAll('#dbgGrid .dbgc').length`) === 50);
+    if (shots) await page.screenshot({ path: path.join(shots, 'debug-picker.png') });
+    await page.click('#dbgGrid [data-lv="23"]'); await waitUntil(page, `STATE==='playing'`);
+    T('debug (browser): clicking level 23 starts level 23 in debug mode', await g(page, `curLv===23&&debugActive&&companions.length===3`));
+    T('debug (browser): the LEAVE button is visible while playing', await vis('dbgLeave') !== 'none');
+    await sleep(400);
+    await page.click('#dbgLeave'); await waitUntil(page, `STATE==='debug_pick'`);
+    T('debug (browser): LEAVE goes back to the picker, level 23 still selected', await g(page, `STATE==='debug_pick'&&dbgPick===23&&debugActive`));
+    await page.keyboard.type('41'); await page.keyboard.press('Enter'); await waitUntil(page, `STATE==='playing'`);
+    T('debug (browser): typing 41 and ENTER starts level 41', await g(page, `curLv===41`));
+    await page.keyboard.press('KeyL'); await waitUntil(page, `STATE==='debug_pick'`);
+    T('debug (browser): the L key leaves too', await g(page, `STATE`) === 'debug_pick');
+    T('debug (browser): the real save was never touched', await g(page, `localStorage.getItem(SAVE_KEY)`) === saved);
+    await page.keyboard.press('Escape'); await waitUntil(page, `STATE==='menu'`);
+    T('debug (browser): ESC leaves debug mode back to the main menu', await g(page, `STATE==='menu'&&!debugActive`) && await vis('dbg') === 'none');
+    await page.evaluate(`window.DEBUG_PASSWORD=undefined; showMenu();`);
+    T('debug (browser): without a password the DEBUG button disappears', await vis('btnDebug') === 'none');
+    T('debug (browser): no JavaScript error', page.errors.length === 0, page.errors.join('|'));
     await page.close();
   }
   await browser.close();

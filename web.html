@@ -56,6 +56,17 @@ html.touch .ov-title{font-size:clamp(1rem,4.5vmin,1.7rem)}
 html.touch .ov-sub{font-size:clamp(.5rem,2.2vmin,.8rem)}
 html.touch .btn{font-size:clamp(.65rem,2.8vmin,1rem);padding:1em 1.9em}
 html.touch #menuHint{display:none}
+/* debug mode */
+#dbg{position:absolute;inset:0;background:rgba(10,10,30,.96);display:none;flex-direction:column;align-items:center;justify-content:center;gap:.6rem;z-index:5}
+#dbg input{font-family:'Press Start 2P',monospace;font-size:clamp(.6rem,1.6vw,.9rem);text-align:center;padding:.6em 1em;background:#000;color:#fff;border:3px solid #fff;width:12em}
+#dbgGrid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;width:min(92%,34rem)}
+.dbgc{font-family:'Press Start 2P',monospace;font-size:clamp(.34rem,1vw,.6rem);background:#000a5a;color:#fff;border:1px solid #aaa;padding:.7em 0;cursor:pointer}
+.dbgc.boss{background:#960000}
+.dbgc.sel{background:#c8a000;color:#000;outline:3px solid #fff}
+.dbg-row{display:flex;gap:.8rem}
+#dbgMsg,#dbgPwMsg{color:#ffd700;min-height:1.2em}
+#dbgPwMsg{color:#ff5050}
+#dbgLeave{position:absolute;top:8px;left:8px;z-index:4;display:none;font-family:'Press Start 2P',monospace;font-size:clamp(.34rem,.9vw,.55rem);background:#960000;color:#fff;border:2px solid #fff;padding:.6em 1em;cursor:pointer}
 html.touch #fsbtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);right:calc(env(safe-area-inset-right,0px) + 8px);width:44px;height:44px;font-size:1.1rem;padding:0;z-index:25}
 /* on-screen controls: joystick (left), jump (right), punch above jump */
 #touchui{display:none;position:fixed;inset:0;z-index:20;pointer-events:none;
@@ -117,8 +128,26 @@ html.touch #touchui{display:block}
       <div class="ov-sub">Made by Mehrsam · 50 Levels · 5 Chapters</div>
       <button class="btn" id="btnNew">▶ NEW GAME</button>
       <button class="btn g" id="btnCont" style="display:none">↺ CONTINUE</button>
+      <button class="btn" id="btnDebug" style="display:none;background:#5a2d91;border-bottom-color:#2b1250;border-right-color:#2b1250">🛠 DEBUG</button>
       <div class="ov-sub" id="menuHint">↑ ↓ choose · ENTER / SPACE select</div>
     </div>
+    <div id="dbg">
+      <div class="ov-title">DEBUG MODE</div>
+      <div id="dbgPwPanel" style="display:flex;flex-direction:column;align-items:center;gap:.7rem">
+        <div class="ov-sub">Enter the password</div>
+        <input id="dbgPw" type="password" autocomplete="off">
+        <div class="ov-sub" id="dbgPwMsg"></div>
+        <div class="dbg-row"><button class="btn" id="dbgOk">OK</button><button class="btn g" id="dbgCancel">BACK</button></div>
+      </div>
+      <div id="dbgPickPanel" style="display:none;flex-direction:column;align-items:center;gap:.6rem;width:100%">
+        <div class="ov-sub" id="dbgInfo"></div>
+        <div id="dbgGrid"></div>
+        <div class="ov-sub" id="dbgMsg"></div>
+        <div class="ov-sub">← → ↑ ↓ move (↑ ↓ = 10) · type a number · ENTER start · ESC leave debug</div>
+        <button class="btn g" id="dbgBack">⟵ LEAVE DEBUG</button>
+      </div>
+    </div>
+    <button id="dbgLeave">⟵ LEAVE LEVEL (L)</button>
     <div id="pausebox">
       <button class="btn" id="btnResume">▶ RESUME</button>
       <button class="btn g" id="btnSaveQuit">💾 SAVE &amp; QUIT</button>
@@ -163,6 +192,7 @@ html.touch #touchui{display:block}
 <div id="rotate"><div class="ic">📱</div><div>ROTATE YOUR PHONE<br>to play in landscape</div></div>
 <div id="toast"></div>
 
+<script src="env.js" onerror="this.remove()"></script>
 <script>
 // Phone / tablet detection (runs first). Not only one media query: any touch-first device counts.
 (function(){
@@ -392,6 +422,7 @@ function sg(lv,lives,cp=null,um=lv,pw=null,pt=0,reset=false){
   const data={lv,lives,cp,um:Math.max(old?old.um:1,um,lv),pw:pt>0?pw:null,pt:pt>0?pt:0};
   // true ONLY when the browser really stored it: write, then read it back and compare (a full or blocked storage
   // can throw, or silently keep nothing).
+  if(debugActive)return true;                        // DEBUG MODE never touches the real save
   try{const text=JSON.stringify(data);localStorage.setItem(SAVE_KEY,text);return localStorage.getItem(SAVE_KEY)===text;}catch{return false;}
 }
 
@@ -1592,18 +1623,22 @@ function updSB(){
 
 
 const overlay=document.getElementById('overlay');
-const btnNew=document.getElementById('btnNew'),btnCont=document.getElementById('btnCont');
+const btnNew=document.getElementById('btnNew'),btnCont=document.getElementById('btnCont'),btnDebug=document.getElementById('btnDebug');
+const dbgBox=document.getElementById('dbg'),dbgLeave=document.getElementById('dbgLeave'),dbgPwPanel=document.getElementById('dbgPwPanel'),dbgPickPanel=document.getElementById('dbgPickPanel');
+const dbgPw=document.getElementById('dbgPw'),dbgPwMsg=document.getElementById('dbgPwMsg'),dbgInfo=document.getElementById('dbgInfo'),dbgGrid=document.getElementById('dbgGrid'),dbgMsg=document.getElementById('dbgMsg');
 // The menu has NEW GAME and (only when a healthy save exists) CONTINUE. Up / Down choose, Enter / Space confirm.
 let menuIdx=0;                                    // 0 = NEW GAME, 1 = CONTINUE
-const menuOpts=()=>hs()?['new','cont']:['new'];
+const debugPw=()=>{const p=(typeof window!=='undefined'&&window.DEBUG_PASSWORD)?String(window.DEBUG_PASSWORD):'';return(p&&p!=='change_me')?p:'';};   // from env.js (made from .env); no password = no DEBUG button
+const menuOpts=()=>{const o=['new'];if(hs())o.push('cont');if(debugPw())o.push('debug');return o;};
 function paintMenu(){
   const o=menuOpts();menuIdx=Math.max(0,Math.min(menuIdx,o.length-1));
   const mark=(el,on)=>{if(on)el.classList.add('sel');else el.classList.remove('sel');};
-  mark(btnNew,o[menuIdx]==='new');mark(btnCont,o[menuIdx]==='cont');
+  mark(btnNew,o[menuIdx]==='new');mark(btnCont,o[menuIdx]==='cont');mark(btnDebug,o[menuIdx]==='debug');
 }
 function showMenu(){
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
-  overlay.style.display='flex';btnCont.style.display=hs()?'block':'none';
+  overlay.style.display='flex';btnCont.style.display=hs()?'block':'none';btnDebug.style.display=debugPw()?'block':'none';
+  dbgBox.style.display='none';dbgLeave.style.display='none';
   menuIdx=hs()?1:0;                               // with a save, Enter still continues it (it never wipes a save by accident)
   paintMenu();
 }
@@ -1612,11 +1647,67 @@ function menuNew(){btnNew.blur();hideMenu();newGame();}
 function menuCont(){btnCont.blur();const d=lg();if(d){hideMenu();contGame(d);}else{btnCont.style.display='none';paintMenu();}}
 btnNew.addEventListener('click',menuNew);
 btnCont.addEventListener('click',menuCont);
+// ================= DEBUG MODE =================
+// A password (from .env, through env.js) opens a level picker: any level 1-50 can be played from its start. Nothing is
+// ever saved while it is on (sg() does nothing), so the real save is safe. "Leave" goes back to the picker.
+let debugActive=false,dbgPick=1,dbgDigits='';
+function dbgShow(which){                                 // which: 'pw' | 'pick' | null (hide the debug screens)
+  dbgBox.style.display=which?'flex':'none';
+  dbgPwPanel.style.display=which==='pw'?'flex':'none';dbgPickPanel.style.display=which==='pick'?'flex':'none';
+}
+function openDebugPw(){
+  if(!debugPw())return;                                  // no password configured: nothing to open
+  hideMenu();STATE='debug_pw';dbgPw.value='';dbgPwMsg.textContent='';dbgShow('pw');
+  if(dbgPw.focus)dbgPw.focus();
+}
+function tryDebugPw(){
+  const typed=String(dbgPw.value),real=debugPw();
+  let diff=typed.length^real.length;for(let i=0;i<real.length;i++)diff|=(typed.charCodeAt(i)||0)^real.charCodeAt(i);   // same time for any wrong guess
+  dbgPw.value='';
+  if(real&&diff===0){dbgPwMsg.textContent='';dbgDigits='';dbgMsg.textContent='';STATE='debug_pick';dbgShow('pick');renderPick();}
+  else dbgPwMsg.textContent='WRONG PASSWORD';
+}
+function renderPick(){
+  dbgPick=Math.min(MAX_LV,Math.max(1,dbgPick));
+  let h='';for(let n=1;n<=MAX_LV;n++)h+='<button class="dbgc'+(n%10===0?' boss':'')+(n===dbgPick?' sel':'')+'" data-lv="'+n+'">'+n+'</button>';
+  dbgGrid.innerHTML=h;
+  dbgInfo.textContent='PICK A LEVEL:  '+dbgPick+'   -   Chapter '+(chapterOf(dbgPick)+1)+(dbgPick%10===0?'   -   BOSS':'');
+}
+function debugStart(n){
+  n=Math.min(MAX_LV,Math.max(1,~~n));
+  resetSession();debugActive=true;dbgPick=n;curLv=n;cpX=null;
+  loadLv(n);STATE='playing';dbgShow(null);dbgLeave.style.display='block';
+  flash={t:'DEBUG - LEVEL '+n+'  (L = leave)',d:150};
+}
+function debugReturn(msg){                               // back to the level picker, debug stays on
+  const n=curLv;resetSession();debugActive=true;dbgPick=n;dbgDigits='';
+  STATE='debug_pick';dbgShow('pick');dbgLeave.style.display='none';renderPick();dbgMsg.textContent=msg||'';
+}
+function debugExit(){debugActive=false;dbgShow(null);dbgLeave.style.display='none';STATE='menu';showMenu();}
+dbgGrid.addEventListener('click',e=>{const lv=e.target&&e.target.dataset&&e.target.dataset.lv;if(lv&&STATE==='debug_pick')debugStart(+lv);});
+document.getElementById('btnDebug').addEventListener('click',()=>{btnDebug.blur();openDebugPw();});
+document.getElementById('dbgOk').addEventListener('click',tryDebugPw);
+document.getElementById('dbgCancel').addEventListener('click',debugExit);
+document.getElementById('dbgBack').addEventListener('click',debugExit);
+dbgLeave.addEventListener('click',()=>{if(debugActive&&(STATE==='playing'||STATE==='paused'))debugReturn('LEFT LEVEL '+curLv);});
+function debugKey(code){                                 // keys on the debug screens
+  if(STATE==='debug_pw'){if(code==='Escape')debugExit();else if(code==='Enter'||code==='NumpadEnter')tryDebugPw();return;}
+  if(code==='Escape'){debugExit();return;}
+  const m=/^(?:Digit|Numpad)(\d)$/.exec(code);
+  if(code==='ArrowLeft'||code==='KeyA'){dbgPick--;dbgDigits='';}
+  else if(code==='ArrowRight'||code==='KeyD'){dbgPick++;dbgDigits='';}
+  else if(code==='ArrowUp'||code==='KeyW'){dbgPick-=10;dbgDigits='';}
+  else if(code==='ArrowDown'||code==='KeyS'){dbgPick+=10;dbgDigits='';}
+  else if(m){dbgDigits=(dbgDigits+m[1]).slice(-2);dbgPick=+dbgDigits;}
+  else if(code==='Enter'||code==='NumpadEnter'||code==='Space'){debugStart(dbgPick);return;}
+  else return;
+  renderPick();
+}
 function menuKey(code){
   const o=menuOpts();
   if(code==='ArrowUp'||code==='KeyW'){menuIdx=(menuIdx-1+o.length)%o.length;paintMenu();}
   else if(code==='ArrowDown'||code==='KeyS'){menuIdx=(menuIdx+1)%o.length;paintMenu();}
-  else if(code==='Enter'||code==='NumpadEnter'||code==='Space'){if(o[menuIdx]==='cont')menuCont();else menuNew();}
+  else if(code==='Enter'||code==='NumpadEnter'||code==='Space'){if(o[menuIdx]==='cont')menuCont();else if(o[menuIdx]==='debug')openDebugPw();else menuNew();}
 }
 
 
@@ -1629,13 +1720,15 @@ function clearAllKeys(){for(const k in keys)keys[k]=false;for(const k in kbHeld)
 window.addEventListener('blur',clearAllKeys);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)clearAllKeys();else resetClock();});
 document.addEventListener('keydown',e=>{
-  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+  const typing=e.target&&e.target.tagName==='INPUT';   // typing the password: let the box have its keys
+  if(!typing&&['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
   const fresh=!e.repeat&&!kbHeld[e.code];         // a REAL new press (not auto-repeat, not a key that never came back up)
   kbHeld[e.code]=true;
   keys[e.code]=true;                              // walking / flying follow the held keys
   if(!fresh)return;                               // ...but nothing else happens for a key that is merely held
   if(STATE==='playing'){
     if(e.code==='Escape'){pauseGame();return;}
+    if(e.code==='KeyL'&&debugActive&&!pipeDying){debugReturn('LEFT LEVEL '+curLv);return;}
     if(['Space','ArrowUp','KeyW'].includes(e.code)&&!pipeDying)mario.jump();
     if((e.code==='ArrowRight'||e.code==='KeyD')&&!pipeDying)mario.tryDash(1);
     if((e.code==='ArrowLeft'||e.code==='KeyA')&&!pipeDying)mario.tryDash(-1);
@@ -1650,6 +1743,8 @@ document.addEventListener('keydown',e=>{
     if(e.code==='Space'||e.code==='Enter'){if(cs){const fn=cs.after;cs=null;STATE='playing';if(fn)fn();}}
   }else if(STATE==='menu'){
     menuKey(e.code);
+  }else if(STATE==='debug_pw'||STATE==='debug_pick'){
+    debugKey(e.code);
   }
 });
 document.addEventListener('keyup',e=>{kbHeld[e.code]=false;keys[e.code]=false;if(['Space','ArrowUp','KeyW'].includes(e.code)&&mario)mario.releaseJ();});
@@ -1665,6 +1760,7 @@ function resumeGame(){
 }
 function saveAndQuit(){
   if(STATE!=='paused'||!mario)return;
+  if(debugActive){debugReturn('LEFT LEVEL '+curLv);return;}   // debug: nothing to save, just leave the level
   // "SAVED!" is shown ONLY when the save really worked. If it failed the player stays in the game (paused),
   // sees a clear error, and can try again or keep playing: he must never believe his progress is stored.
   if(!sg(curLv,mario.lives,cpX,unlockedMax,mario.power,mario.powerT)){
@@ -1770,7 +1866,7 @@ function loadLv(n,sx=50){
 // Forget everything temporary that belongs to the previous run, so a new game / continue starts really clean:
 // messages, screen shake, held keys and touches, effects, leftover screens, the heartbeat and the clock.
 function resetSession(){
-  flash=null;shake=0;curZoom=1;hb=0;hd=1;
+  debugActive=false;dbgDigits='';flash=null;shake=0;curZoom=1;hb=0;hd=1;
   fa=null;faSub='';faNext=null;faT=0;cs=null;pipeDying=false;pauseMsg='';
   parts.length=0;
   clearAllKeys();
@@ -1809,6 +1905,7 @@ function respawn(){
   camX=Math.max(0,sx-GW/2);pipeDying=false;
 }
 function nextLv(){
+  if(debugActive){debugReturn('LEVEL '+curLv+' CLEARED');return;}   // debug: a cleared level just returns to the picker
   // Beating the last level ends the game: there is no level 51 to count up to or to save.
   if(curLv>=MAX_LV){playCS('final',()=>{showMenu();STATE='menu';});return;}
   const prevCh=chapterOf(curLv);curLv++;cpX=null;unlockedMax=Math.max(unlockedMax,curLv);
@@ -1828,6 +1925,7 @@ function trigFL(t,col,sz,ns,sub=''){fa=new FL(t,col,sz,240,5);faSub=sub;faNext=n
 function loseLife(pipeD=false){
   if(pipeD){pipeDying=true;mario.pipeSink=40;mario.pipeSinkY=mario.rect.y;mario.vx=0;mario.vy=0;return;}
   mario.lives--;
+  if(mario.lives<=0&&debugActive){debugReturn('GAME OVER ON LEVEL '+curLv);return;}
   if(mario.lives<=0){trigFL('GAME  OVER','#dc1e1e',52,'menu','Press ENTER – Made by Mehrsam');}
   else{respawn();flash={t:`♥ ${mario.lives} left`,d:90};}
 }
@@ -2027,6 +2125,7 @@ function drawPortal(gx,gy,color,t){
   ctx.restore();
 }
 function drawHUD(){
+  if(debugActive){fr('rgba(150,0,0,.85)',6,GH-30,300,22);txt('DEBUG  LEVEL '+curLv+'  ·  L = leave',12,GH-14,9,'#fff','left');}
   
   const b=level.boss;
   if(b&&b.alive){
@@ -2138,7 +2237,7 @@ function loop(ts){
     else if(STATE==='paused')drawPause();
     else if(STATE==='falling_text')drawFalling();
     else if(STATE==='cutscene')drawCS();
-    else if(STATE==='menu')drawMenu();
+    else if(STATE==='menu'||STATE==='debug_pw'||STATE==='debug_pick')drawMenu();
   }
   requestAnimationFrame(loop);
 }

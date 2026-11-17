@@ -521,6 +521,76 @@ const baseState=()=>{keys.ArrowLeft=keys.ArrowRight=keys.Space=false;};
   put({lv:7,lives:2,cp:null,um:7,pw:null,pt:0}); noStore(); newGame(); T('H save: New Game when saving is impossible: warns the player and removes the old save', flash&&/NOT be saved/.test(flash.t)&&!hs(), flash&&flash.t); fix();
 }
 
+// ---- I. DEBUG MODE: password, any level, leave, and the real save is never touched ----
+{
+  const had=window.DEBUG_PASSWORD;
+  const realSave={lv:7,lives:2,cp:null,um:9,pw:null,pt:0};
+  const saveText=()=>localStorage.getItem(SAVE_KEY);
+  // no password configured = no DEBUG button at all
+  window.DEBUG_PASSWORD=undefined; put(realSave); STATE='menu'; showMenu();
+  T('I debug: without a password in env.js there is no DEBUG button', menuOpts().join()==='new,cont'&&els.btnDebug.style.display==='none');
+  openDebugPw(); T('I debug: ...and it cannot be opened by calling it', STATE==='menu');
+  window.DEBUG_PASSWORD='change_me'; showMenu(); T('I debug: the example password "change_me" does not count', !menuOpts().includes('debug'));
+  window.DEBUG_PASSWORD='8830'; STATE='menu'; showMenu();
+  T('I debug: with a password the DEBUG button appears (after NEW GAME / CONTINUE)', menuOpts().join()==='new,cont,debug'&&els.btnDebug.style.display==='block');
+  const before=saveText();
+  T('I debug: with a save, CONTINUE is selected first', menuOpts()[menuIdx]==='cont'); key('ArrowDown'); T('I debug: the arrow keys can select DEBUG', menuOpts()[menuIdx]==='debug'&&els.btnDebug.classList.contains('sel'));
+  key('Enter'); T('I debug: ENTER on DEBUG opens the password box', STATE==='debug_pw'&&els.dbg.style.display==='flex'&&els.dbgPwPanel.style.display==='flex');
+  // wrong passwords
+  for(const bad of ['','1234','8831','88300','883','8830 ','abcd']){els.dbgPw.value=bad;key('Enter');
+    T('I debug: password "'+bad+'" is refused', STATE==='debug_pw'&&els.dbgPwMsg.textContent==='WRONG PASSWORD'&&els.dbgPw.value==='');}
+  els.dbgPw.value='1234'; els.dbgOk.handlers.click(); T('I debug: the OK button refuses a wrong password too', STATE==='debug_pw');
+  // the picker cannot be reached without the password
+  dbgDigits=''; debugKey('ArrowRight'); T('I debug: arrow keys in the password box do not open the picker', STATE==='debug_pw');
+  // right password
+  els.dbgPw.value='8830'; key('Enter');
+  T('I debug: the right password (8830) opens the level picker', STATE==='debug_pick'&&els.dbgPickPanel.style.display==='flex'&&els.dbgPwPanel.style.display==='none'&&els.dbgPw.value==='');
+  T('I debug: the picker shows all 50 levels (bosses marked)', (els.dbgGrid.innerHTML.match(/data-lv=/g)||[]).length===50&&(els.dbgGrid.innerHTML.match(/dbgc boss/g)||[]).length===5);
+  // moving
+  dbgPick=1; key('ArrowRight'); T('I debug: right = +1', dbgPick===2); key('ArrowDown'); T('I debug: down = +10', dbgPick===12); key('ArrowUp'); key('ArrowLeft'); T('I debug: up = -10, left = -1', dbgPick===1);
+  key('ArrowLeft'); T('I debug: it stops at level 1', dbgPick===1); dbgPick=45; key('ArrowDown'); key('ArrowDown'); key('ArrowRight'); key('ArrowRight'); T('I debug: it stops at level 50', dbgPick===50);
+  key('Digit2'); key('Digit7'); T('I debug: typing 2 then 7 picks level 27', dbgPick===27, dbgPick);
+  key('Digit9'); key('Digit9'); T('I debug: typing 99 gives level 50 (the last one)', dbgPick===50, dbgPick);
+  key('Digit0'); T('I debug: digits keep the last two typed (99 then 0 = 90, capped to 50)', dbgPick===50, dbgPick);
+  key('ArrowLeft'); key('Digit0'); T('I debug: after an arrow key a lone 0 starts a new number and gives level 1', dbgPick===1, dbgPick);
+  T('I debug: the picked level is highlighted', /dbgc sel" data-lv="1"/.test(els.dbgGrid.innerHTML));
+  // start every level
+  let startedAll=true, badLives=0, badComp=0;
+  for(let n=1;n<=50;n++){ STATE='debug_pick'; dbgPick=n; key('Enter');
+    if(!(STATE==='playing'&&curLv===n&&debugActive&&cpX===null))startedAll=false;
+    if(mario.lives!==3)badLives++; if(companions.length!==(chapterOf(n)===0?0:chapterOf(n)===1?2:3))badComp++; }
+  T('I debug: every level 1..50 can be started from the picker', startedAll);
+  T('I debug: ...with 3 lives each time', badLives===0);
+  T('I debug: ...and the right team for the chapter (none, Luigi+Princess, +Yoshi)', badComp===0);
+  // clicking a level button works too
+  STATE='debug_pick'; els.dbgGrid.handlers.click({target:{dataset:{lv:'33'}}}); T('I debug: clicking / tapping a level button starts it', STATE==='playing'&&curLv===33);
+  T('I debug: the LEAVE button is visible while playing', els.dbgLeave.style.display==='block'&&els.dbg.style.display==='none');
+  drawPlay(); T('I debug: the screen draws with the DEBUG tag', true);
+  // leave
+  key('KeyL'); T('I debug: L leaves the level and goes back to the picker', STATE==='debug_pick'&&debugActive&&dbgPick===33&&els.dbgLeave.style.display==='none', STATE);
+  T('I debug: ...which still has level 33 highlighted and says it was left', /LEFT LEVEL 33/.test(els.dbgMsg.textContent)&&dbgPick===33);
+  key('Enter'); els.dbgLeave.handlers.click(); T('I debug: the LEAVE button does the same', STATE==='debug_pick');
+  key('Enter'); key('Escape'); STATE='paused'; key('KeyQ'); T('I debug: in the pause menu Q leaves the level too (it does not "save")', STATE==='debug_pick'&&fa===null);
+  // clearing a level and losing
+  debugStart(12); level.goal&&nextLv(); T('I debug: reaching the goal returns to the picker ("cleared") instead of the next level', STATE==='debug_pick'&&/CLEARED/.test(els.dbgMsg.textContent)&&curLv===12);
+  debugStart(12); mario.lives=1; loseLife(); T('I debug: losing every life returns to the picker (no GAME OVER screen)', STATE==='debug_pick'&&/GAME OVER/.test(els.dbgMsg.textContent)&&fa===null);
+  debugStart(50); nextLv(); T('I debug: finishing level 50 in debug shows no ending, just the picker', STATE==='debug_pick');
+  // the real save was never touched
+  debugStart(20); level.cps[0].wx; mario.rect.x=level.cps[0].wx-10; mario.rect.y=GY-38; level.enemies.length=0; update();
+  T('I debug: a checkpoint in debug mode does not touch the save', saveText()===before, saveText());
+  T('I debug: nothing in debug mode wrote the save (sg returns true but stores nothing)', sg(99,3,null,99,null,0)===true&&saveText()===before);
+  // leave debug completely
+  debugReturn(''); key('Escape'); T('I debug: ESC in the picker leaves debug mode to the main menu', STATE==='menu'&&!debugActive&&els.overlay.style.display==='flex'&&els.dbg.style.display==='none');
+  T('I debug: the real save is exactly as before', saveText()===before&&lg().lv===7);
+  T('I debug: after leaving debug, saving works normally again', sg(8,3,null,9,null,0)===true&&lg().lv===8);
+  put(realSave); contGame(lg()); T('I debug: Continue after debug resumes the REAL save (level 7, 2 lives)', curLv===7&&mario.lives===2&&!debugActive);
+  newGame(); T('I debug: a new game is not a debug game', !debugActive&&els.dbgLeave.style.display!=='block');
+  // ESC in the password box and BACK button
+  STATE='menu'; showMenu(); openDebugPw(); key('Escape'); T('I debug: ESC in the password box goes back to the menu', STATE==='menu'&&els.dbg.style.display==='none');
+  openDebugPw(); els.dbgCancel.handlers.click(); T('I debug: the BACK button too', STATE==='menu');
+  window.DEBUG_PASSWORD=had;
+}
+
 // ---- randomised soak: no exceptions, no NaN, saves always valid ----
 let seed=12345; const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
 let soakOk=true,soakMsg='';

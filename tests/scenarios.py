@@ -1,5 +1,9 @@
 """Scenario tests that drive the real Game object headlessly with simulated key events."""
 import os, sys, tempfile, json
+# The tests must give the same result with or without the developer's private .env, so they point the game at a file that does not exist
+# (the debug tests below write their own temporary .env).
+NO_ENV_FILE = os.path.join(tempfile.gettempdir(), 'mario-test-no-such.env')
+os.environ['MARIO_ENV_FILE'] = NO_ENV_FILE
 os.environ["SDL_VIDEODRIVER"] = "dummy"; os.environ["SDL_AUDIODRIVER"] = "dummy"
 SRC = os.path.abspath(sys.argv[1]); sys.path.insert(0, SRC)   # absolute: the next line changes the folder
 os.chdir(tempfile.mkdtemp())                       # saves/ goes to a throw-away folder
@@ -620,6 +624,95 @@ check("save: a new level that could not be saved says so", g.flash and "SAVE FAI
 m = start(); g._next_level(); check("save: ...and a normal new level shows no error", not (g.flash and "FAILED" in g.flash[0]) and load_game()["level"] == 2)
 save_game(7, 2, None, None, 0); break_saving(); g.new_game()
 check("save: New Game when saving is impossible warns the player", g.flash and "NOT be saved" in g.flash[0], g.flash); fix_saving()
+
+
+# =====================================================================================================
+# DEBUG MODE: password from .env, any level, leave, and the real save is never touched
+# =====================================================================================================
+import debug_mode
+def press_key(key, char=""): pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=key, unicode=char, mod=0))
+def type_text(text):
+    for ch in text: press_key(ord(ch) if ch.isalnum() else 0, ch); g.handle_debug_password()
+def to_menu():
+    g.state = "menu"; g._build_menu()
+env_dir = tempfile.mkdtemp(); env_path = os.path.join(env_dir, "test.env")
+def write_env(text):
+    open(env_path, "w").write(text); os.environ["MARIO_ENV_FILE"] = env_path
+
+# the .env reader
+write_env("# a comment\n\nDEBUG_PASSWORD=8830\nOTHER = ' spaced value '\nBAD LINE\n")
+check("debug .env: the password is read", debug_mode.debug_password() == "8830")
+check("debug .env: quotes and spaces are handled", debug_mode.read_env_file(env_path)["OTHER"] == " spaced value ")
+write_env('DEBUG_PASSWORD="quoted pw"\n'); check("debug .env: a quoted password works", debug_mode.debug_password() == "quoted pw")
+write_env("DEBUG_PASSWORD=\n"); check("debug .env: an empty password means debug is off", debug_mode.debug_password() is None)
+write_env("DEBUG_PASSWORD=change_me\n"); check("debug .env: the example value 'change_me' means debug is off", debug_mode.debug_password() is None)
+os.environ["MARIO_ENV_FILE"] = os.path.join(env_dir, "missing.env"); check("debug .env: no file means debug is off", debug_mode.debug_password() is None)
+check("debug .env: with debug off no password is ever correct (not even an empty one)", not debug_mode.password_is_correct("") and not debug_mode.password_is_correct("8830"))
+to_menu(); check("debug: without a .env there is no Debug option in the menu", "Debug" not in g.menu_options, g.menu_options)
+
+# opening it
+write_env("DEBUG_PASSWORD=8830\n")
+save_game(7, 2, None, "fly", 100)
+real_save_text = open(save_game.__globals__["Config"].save_file_path).read()
+to_menu(); check("debug: with a .env the menu has Debug (before Quit)", g.menu_options[-2:] == ["Debug", "Quit"], g.menu_options)
+g.selected_index = g.menu_options.index("Debug"); press_key(pygame.K_RETURN); g.handle_menu()
+check("debug: choosing Debug asks for the password", g.state == "debug_password")
+for bad in ("", "1234", "8831", "88300", "883", "8830 ", "abcd"):
+    g.debug_input = ""; type_text(bad); press_key(pygame.K_RETURN); g.handle_debug_password()
+    check(f"debug: password {bad!r} is refused", g.state == "debug_password" and g.debug_message == "WRONG PASSWORD" and g.debug_input == "")
+g.draw_debug_password(); check("debug: the password screen draws", True)
+type_text("88"); press_key(pygame.K_BACKSPACE); g.handle_debug_password(); check("debug: Backspace removes a typed character", g.debug_input == "8")
+g.debug_input = ""; press_key(pygame.K_LEFT); press_key(pygame.K_RIGHT); g.handle_debug_password(); check("debug: arrow keys in the password box do not open the picker", g.state == "debug_password")
+g.debug_input = ""; type_text("8830"); check("debug: the box holds what was typed (shown as stars, never as text)", g.debug_input == "8830")
+press_key(pygame.K_RETURN); g.handle_debug_password(); check("debug: the right password (8830) opens the level picker", g.state == "debug_levels" and g.debug_input == "")
+g.draw_debug_levels(); check("debug: the level picker draws", True)
+
+# the picker
+g.debug_pick = 1; press_key(pygame.K_RIGHT); g.handle_debug_levels(); check("debug: right = +1", g.debug_pick == 2)
+press_key(pygame.K_DOWN); g.handle_debug_levels(); check("debug: down = +10", g.debug_pick == 12)
+press_key(pygame.K_UP); press_key(pygame.K_LEFT); g.handle_debug_levels(); check("debug: up = -10, left = -1", g.debug_pick == 1)
+press_key(pygame.K_LEFT); g.handle_debug_levels(); check("debug: it stops at level 1", g.debug_pick == 1)
+g.debug_pick = 45
+for k in (pygame.K_DOWN, pygame.K_DOWN, pygame.K_RIGHT, pygame.K_RIGHT): press_key(k)
+g.handle_debug_levels(); check("debug: it stops at level 50", g.debug_pick == 50)
+press_key(pygame.K_2, "2"); press_key(pygame.K_7, "7"); g.handle_debug_levels(); check("debug: typing 2 then 7 picks level 27", g.debug_pick == 27, g.debug_pick)
+press_key(pygame.K_9, "9"); press_key(pygame.K_9, "9"); g.handle_debug_levels(); check("debug: typing 99 gives level 50", g.debug_pick == 50, g.debug_pick)
+press_key(pygame.K_0, "0"); g.handle_debug_levels(); check("debug: digits keep the last two typed (99 then 0 = 90, capped to 50)", g.debug_pick == 50, g.debug_pick)
+press_key(pygame.K_LEFT); press_key(pygame.K_0, "0"); g.handle_debug_levels(); check("debug: after an arrow key a lone 0 starts a new number and gives level 1", g.debug_pick == 1, g.debug_pick)
+
+# every level can be started
+started, bad_lives, bad_team = True, 0, 0
+for number in range(1, 51):
+    g.state = "debug_levels"; g.debug_pick = number; press_key(pygame.K_RETURN); g.handle_debug_levels()
+    if not (g.state == "playing" and g.current_level == number and g.debug_active and g.checkpoint_x is None): started = False
+    if g.mario.lives != 3: bad_lives += 1
+    wanted = 0 if (number - 1) // 10 == 0 else 2 if (number - 1) // 10 == 1 else 3
+    if len(g.companions) != wanted: bad_team += 1
+check("debug: every level 1..50 can be started from the picker", started)
+check("debug: ...with 3 lives each time", bad_lives == 0)
+check("debug: ...and the right team for the chapter (none, Luigi + Princess, + Yoshi)", bad_team == 0)
+g.debug_start(33); g.draw_play(); check("debug: the play screen draws with the DEBUG tag", True)
+# leave
+press_key(pygame.K_l); g.handle_play()
+check("debug: L leaves the level and returns to the picker, keeping level 33 selected", g.state == "debug_levels" and g.debug_active and g.debug_pick == 33 and "LEFT LEVEL 33" in g.debug_message, g.state)
+g.debug_start(33); g._pause(); press_key(pygame.K_q); g.handle_pause()
+check("debug: in the pause menu Q leaves the level (and does not 'save')", g.state == "debug_levels" and g.falling is None)
+g.debug_start(12); g._next_level(); check("debug: reaching the goal returns to the picker instead of the next level", g.state == "debug_levels" and "CLEARED" in g.debug_message and g.current_level == 12)
+g.debug_start(12); g.mario.lives = 1; g._take_life(); check("debug: losing every life returns to the picker (no GAME OVER screen)", g.state == "debug_levels" and "GAME OVER" in g.debug_message and g.falling is None)
+g.debug_start(50); g._next_level(); check("debug: finishing level 50 shows no ending, just the picker", g.state == "debug_levels")
+# the real save is never touched
+g.debug_start(20); m = g.mario; no_enemies(); m.rect.x = g.level[3][0].world_x - 10; m.rect.bottom = Config.ground_y; g._update_checkpoints()
+check("debug: a checkpoint in debug mode does not touch the save", open(Config.save_file_path).read() == real_save_text)
+check("debug: nothing written in debug mode (the save call says OK but stores nothing)", g._save_progress() is True and open(Config.save_file_path).read() == real_save_text)
+g._debug_return(); press_key(pygame.K_ESCAPE); g.handle_debug_levels()
+check("debug: ESC in the picker leaves debug mode to the main menu", g.state == "menu" and not g.debug_active and "Debug" in g.menu_options)
+check("debug: the real save is exactly as before", open(Config.save_file_path).read() == real_save_text and load_game()["level"] == 7)
+g.selected_index = g.menu_options.index("Continue"); press_key(pygame.K_RETURN); g.handle_menu()
+check("debug: Continue after debug resumes the REAL save (level 7, 2 lives)", g.current_level == 7 and g.mario.lives == 2 and not g.debug_active)
+g.state = "menu"; g._build_menu(); g.selected_index = g.menu_options.index("Debug"); press_key(pygame.K_RETURN); g.handle_menu(); press_key(pygame.K_ESCAPE); g.handle_debug_password()
+check("debug: ESC in the password box goes back to the menu", g.state == "menu")
+g.new_game(); check("debug: a new game is never a debug game", not g.debug_active)
+os.environ["MARIO_ENV_FILE"] = NO_ENV_FILE
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} checks passed")

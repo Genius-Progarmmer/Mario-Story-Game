@@ -1,6 +1,7 @@
 """The Game class: state machine, input, game logic and all screens."""
 
 import pygame, sys, random, math, time
+from debug_mode import debug_password, password_is_correct
 from settings import (
     Config,
     chapters,
@@ -52,6 +53,7 @@ class Game:
         self.running = True
         self.state = "menu"
         self.selected_index = 0
+        self.debug_pick = 1  # the level highlighted in the debug level picker
         self.current_level = 1
         self.mario = None
         self.level = None
@@ -79,6 +81,10 @@ class Game:
         self.end_timer = 0
         self.pipe_dying = False
         self.pause_message = ""  # red text on the pause screen (e.g. the save failed)
+        self.debug_active = False  # True only while playing / picking levels in debug mode (never saves)
+        self.debug_input = ""  # what has been typed in the password box
+        self.debug_digits = ""  # digits typed in the level picker
+        self.debug_message = ""  # red / yellow line on the debug screens
         self.clock_accumulator = 0.0  # real time (ms) not yet turned into logic steps, see advance()
         particles.clear()  # in place: effects.py owns this list
 
@@ -86,6 +92,8 @@ class Game:
         options = ["New Game"]
         if has_save():
             options.append("Continue")
+        if debug_password() is not None:  # the DEBUG button exists only where a .env sets a password
+            options.append("Debug")
         options.append("Quit")
         self.menu_options = options
         self.selected_index = 0
@@ -170,6 +178,8 @@ class Game:
         keep_power=False is used when a new level starts: it always begins without a power.
         Returns True if the file was written.
         """
+        if self.debug_active:
+            return True  # debug mode must never change the real save
         mario = self.mario
         return save_game(
             self.current_level,
@@ -213,6 +223,9 @@ class Game:
         self._stop_moving(companion)
 
     def _next_level(self):
+        if self.debug_active:  # in debug mode a cleared level just returns to the picker
+            self._debug_return(f"LEVEL {self.current_level} CLEARED")
+            return
         if self.current_level >= Config.max_levels:
             # That was the last level. There is no level 51 to move to or to save.
             self.state = "ending"
@@ -275,6 +288,9 @@ class Game:
             self.flash = (f"♥ {self.mario.lives} left", Config.flash_frames_life)
 
     def _game_over(self):
+        if self.debug_active:
+            self._debug_return(f"GAME OVER ON LEVEL {self.current_level}")
+            return
         self._trigger_fall("GAME  OVER", red, "menu", "Press ENTER – Made by Mehrsam")
         self._build_menu()
 
@@ -298,8 +314,81 @@ class Game:
                         self.new_game()
                     elif selected_option == "Continue":
                         self.continue_game()
+                    elif selected_option == "Debug":
+                        self._open_debug_password()
                     elif selected_option == "Quit":
                         self.running = False
+
+    # ----- Debug mode: password, then jump to any level (nothing is ever saved) -----
+    def _open_debug_password(self):
+        self.debug_input = ""
+        self.debug_message = ""
+        self.state = "debug_password"
+
+    def handle_debug_password(self):
+        for event in self._events():
+            if event.type != pygame.KEYDOWN:
+                continue
+            if event.key == pygame.K_ESCAPE:
+                self.state = "menu"
+                self._build_menu()
+            elif event.key == pygame.K_BACKSPACE:
+                self.debug_input = self.debug_input[:-1]
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                if password_is_correct(self.debug_input):
+                    self.debug_input = ""
+                    self.debug_message = ""
+                    self.debug_digits = ""
+                    self.state = "debug_levels"
+                else:
+                    self.debug_input = ""
+                    self.debug_message = "WRONG PASSWORD"
+            elif event.unicode and event.unicode.isprintable() and len(self.debug_input) < 40:
+                self.debug_input += event.unicode
+
+    def handle_debug_levels(self):
+        for event in self._events():
+            if event.type != pygame.KEYDOWN:
+                continue
+            if event.key == pygame.K_ESCAPE:  # leave debug mode completely, back to the main menu
+                self.debug_active = False
+                self.state = "menu"
+                self._build_menu()
+            elif event.key in (pygame.K_LEFT, pygame.K_a):
+                self.debug_pick, self.debug_digits = max(1, self.debug_pick - 1), ""
+            elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                self.debug_pick, self.debug_digits = min(Config.max_levels, self.debug_pick + 1), ""
+            elif event.key in (pygame.K_UP, pygame.K_w):
+                self.debug_pick, self.debug_digits = max(1, self.debug_pick - 10), ""
+            elif event.key in (pygame.K_DOWN, pygame.K_s):
+                self.debug_pick, self.debug_digits = min(Config.max_levels, self.debug_pick + 10), ""
+            elif event.unicode and event.unicode.isdigit():  # type a level number, like 27
+                self.debug_digits = (self.debug_digits + event.unicode)[-2:]
+                self.debug_pick = min(Config.max_levels, max(1, int(self.debug_digits)))
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                self.debug_start(self.debug_pick)
+
+    def debug_start(self, level_number):
+        """Play any level from its start. Lives are the normal 3. The real save is never touched."""
+        level_number = min(Config.max_levels, max(1, int(level_number)))
+        self._reset_session()
+        self.debug_active = True
+        self.debug_pick = level_number
+        self.current_level = level_number
+        self.checkpoint_x = None
+        self._load_level(level_number)
+        self.state = "playing"
+        self.flash = (f"DEBUG - LEVEL {level_number}   (L = leave)", 150)
+
+    def _debug_return(self, message=""):
+        """Back to the level picker (the DEBUG 'leave'), keeping debug mode on."""
+        level_number = self.current_level
+        self._reset_session()
+        self.debug_active = True
+        self.debug_pick = level_number
+        self.debug_digits = ""
+        self.debug_message = message
+        self.state = "debug_levels"
 
     def handle_play(self):
         for event in self._events():
@@ -307,6 +396,9 @@ class Game:
                 if event.key == pygame.K_ESCAPE:
                     self._pause()
                     return  # everything else typed in this frame is ignored
+                if event.key == pygame.K_l and self.debug_active:
+                    self._debug_return("LEFT LEVEL " + str(self.current_level))
+                    return
                 self._handle_play_keydown(event.key)
             elif event.type == pygame.KEYUP:
                 if event.key in JUMP_KEYS:
@@ -381,6 +473,9 @@ class Game:
                 continue  # key releases, jumps, attacks... are all ignored while paused
             if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
                 self._resume()
+                return
+            if event.key == pygame.K_q and self.debug_active:
+                self._debug_return("LEFT LEVEL " + str(self.current_level))
                 return
             if event.key == pygame.K_q:
                 # "SAVED!" only when the file was really written. Otherwise stay here, show the error and let the
@@ -864,6 +959,11 @@ class Game:
             particle.draw(self.screen, camera_x)
         self.mario.draw(self.screen, camera_x)
         self._draw_hud()
+        if self.debug_active:  # always visible, so a debug run is never mistaken for a real one
+            tag = self.font_extra_small.render(f"DEBUG  level {self.current_level}  -  L = leave", True, yellow)
+            box = tag.get_rect(bottomleft=(8, Config.screen_height - 8)).inflate(12, 8)
+            pygame.draw.rect(self.screen, (120, 0, 0), box)
+            self.screen.blit(tag, tag.get_rect(center=box.center))
 
     def draw_pause(self):
         self.draw_play()
@@ -873,7 +973,8 @@ class Game:
         self.screen.blit(overlay, (0, 0))
         title_text = self.font_large.render("PAUSED", True, white)
         self.screen.blit(title_text, title_text.get_rect(center=(Config.screen_width // 2, 190)))
-        for index, line in enumerate(["ESC/ENTER – Resume", "Q – Save & quit"]):
+        pause_lines = ["ESC/ENTER – Resume", "Q – Leave debug level" if self.debug_active else "Q – Save & quit"]
+        for index, line in enumerate(pause_lines):
             line_text = self.font_small.render(line, True, light_gray)
             self.screen.blit(
                 line_text, line_text.get_rect(center=(Config.screen_width // 2, 300 + index * 46))
@@ -889,6 +990,54 @@ class Game:
                 "Press Q to try again, or ESC to keep playing", True, light_gray
             )
             self.screen.blit(hint, hint.get_rect(center=(box.centerx, box.y + 50)))
+
+    def draw_debug_password(self):
+        self.screen.fill((20, 20, 40))
+        centre = Config.screen_width // 2
+        title = self.font_large.render("DEBUG MODE", True, yellow)
+        self.screen.blit(title, title.get_rect(center=(centre, 150)))
+        prompt = self.font_small.render("Enter the password and press ENTER", True, white)
+        self.screen.blit(prompt, prompt.get_rect(center=(centre, 240)))
+        box = pygame.Rect(0, 0, 360, 56)
+        box.center = (centre, 320)
+        pygame.draw.rect(self.screen, black, box)
+        pygame.draw.rect(self.screen, white, box, 2)
+        stars = self.font_medium.render("*" * len(self.debug_input), True, white)  # never show what was typed
+        self.screen.blit(stars, stars.get_rect(center=box.center))
+        if self.debug_message:
+            message = self.font_small.render(self.debug_message, True, red)
+            self.screen.blit(message, message.get_rect(center=(centre, 390)))
+        hint = self.font_extra_small.render("ESC – back to the menu", True, light_gray)
+        self.screen.blit(hint, hint.get_rect(center=(centre, 520)))
+
+    def draw_debug_levels(self):
+        self.screen.fill((20, 20, 40))
+        centre = Config.screen_width // 2
+        title = self.font_large.render("DEBUG - PICK A LEVEL", True, yellow)
+        self.screen.blit(title, title.get_rect(center=(centre, 60)))
+        cell_w, cell_h, columns = 66, 46, 10
+        left = (Config.screen_width - columns * cell_w) // 2
+        for number in range(1, Config.max_levels + 1):
+            row, column = divmod(number - 1, columns)
+            cell = pygame.Rect(left + column * cell_w + 3, 120 + row * (cell_h + 6), cell_w - 6, cell_h)
+            chosen = number == self.debug_pick
+            boss = number % 10 == 0
+            fill = (150, 0, 0) if boss else (0, 0, 90)
+            pygame.draw.rect(self.screen, (200, 160, 0) if chosen else fill, cell)
+            pygame.draw.rect(self.screen, white if chosen else light_gray, cell, 3 if chosen else 1)
+            label = self.font_small.render(str(number), True, black if chosen else white)
+            self.screen.blit(label, label.get_rect(center=cell.center))
+        chapter = chapter_for_level(self.debug_pick) + 1
+        info = f"Level {self.debug_pick}   -   Chapter {chapter}" + ("   -   BOSS" if self.debug_pick % 10 == 0 else "")
+        line = self.font_medium.render(info, True, white)
+        self.screen.blit(line, line.get_rect(center=(centre, 440)))
+        if self.debug_message:
+            message = self.font_small.render(self.debug_message, True, yellow)
+            self.screen.blit(message, message.get_rect(center=(centre, 490)))
+        hint = self.font_extra_small.render(
+            "Arrows move (up / down = 10)  -  type a number  -  ENTER start  -  ESC leave debug", True, light_gray
+        )
+        self.screen.blit(hint, hint.get_rect(center=(centre, 550)))
 
     def draw_menu(self):
         if self.background_surface:
@@ -1106,6 +1255,10 @@ class Game:
             self.update_ending()
         elif self.state == "ending_credits":
             self._update_ending_credits()
+        elif self.state == "debug_password":
+            self.handle_debug_password()
+        elif self.state == "debug_levels":
+            self.handle_debug_levels()
 
     def _draw_state(self):
         if self.state == "menu":
@@ -1123,6 +1276,10 @@ class Game:
             self.draw_ending()
         elif self.state == "ending_credits":
             self.draw_ending_credits()
+        elif self.state == "debug_password":
+            self.draw_debug_password()
+        elif self.state == "debug_levels":
+            self.draw_debug_levels()
 
     def steps_for(self, elapsed_ms):
         """Turn REAL elapsed time into a number of logic steps (the game logic always runs at

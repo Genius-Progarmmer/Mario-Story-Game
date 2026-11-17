@@ -72,6 +72,11 @@ MUTANTS = [
  ("8  Q says SAVED even if saving failed",          "if(!sg(curLv,mario.lives,cpX,unlockedMax,mario.power,mario.powerT)){", "if(!sg(curLv,mario.lives,cpX,unlockedMax,mario.power,mario.powerT)&&false){"),
  ("8  a storage that keeps nothing counts as saved", "return localStorage.getItem(SAVE_KEY)===text;", "return true;"),
  ("8  a failed checkpoint autosave is hidden",      "flash=saved?{t:'✔ CHECKPOINT!',d:80}:{t:'CHECKPOINT - but SAVE FAILED!',d:220};", "flash={t:'✔ CHECKPOINT!',d:80};"),
+ ("D  debug: any password is accepted",              "if(real&&diff===0){", "if(true){"),
+ ("D  debug: playing a debug level overwrites the real save", "if(debugActive)return true;", "if(false)return true;"),
+ ("D  debug: the DEBUG button shows without a password", "if(debugPw())o.push('debug');", "o.push('debug');"),
+ ("D  debug: the password box opens without a password", "  if(!debugPw())return;", "  "),
+ ("D  debug: a cleared level goes on to the next level", "if(debugActive){debugReturn('LEVEL '+curLv+' CLEARED');return;}", "if(false){debugReturn('LEVEL '+curLv+' CLEARED');return;}"),
  ("8  a failed new-level autosave is hidden",       "if(!sg(curLv,START_LIVES,null,unlockedMax,null,0))flash=", "sg(curLv,START_LIVES,null,unlockedMax,null,0);if(false)flash="),
 ]
 
