@@ -28,10 +28,9 @@ class LuckyBlock:
 
     def draw(self, screen, camera_x, font):
         screen_x = self.rect.x - camera_x; screen_y = self.rect.y - self.bump_timer//2
-        block_color = (150,108,40) if self.used else (255,180,30)
-        draw_rect(screen, block_color, screen_x, screen_y, self.width, self.height)
-        pygame.draw.rect(screen, (120,80,20) if self.used else gold, (screen_x,screen_y,self.width,self.height), 3)
-        if not self.used:
+        if not self.used:   # once it has been touched the block is gone: only the coin pop below is still drawn
+            draw_rect(screen, (255,180,30), screen_x, screen_y, self.width, self.height)
+            pygame.draw.rect(screen, gold, (screen_x,screen_y,self.width,self.height), 3)
             question_color = (255,240,0) if (self.animation_timer//10)%2==0 else white
             question_mark = font.render("?", True, question_color)
             screen.blit(question_mark, question_mark.get_rect(center=(screen_x+self.width//2, screen_y+self.height//2)))

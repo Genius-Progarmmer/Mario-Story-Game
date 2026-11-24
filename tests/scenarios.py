@@ -365,11 +365,11 @@ lost = g._update_boss()
 check("boss last stomp: defeats the boss and costs no life", not boss.alive and not lost and m.lives == lives, f"alive={boss.alive} lost={lost} lives {lives}->{m.lives}")
 m, boss = boss_next_to_mario(3); lives = m.lives
 lost = g._update_boss()
-check("boss alive: touching its body still costs a life", boss.alive and lost and m.lives == lives - 1, f"lost={lost} lives {lives}->{m.lives}")
+check("boss alive: touching its body takes ONE HEART, not a life (like the HTML game)", boss.alive and not lost and m.lives == lives and m.boss_hits == 1 and m.invincibility_timer == Config.boss_hit_invincibility, f"lost={lost} lives {lives}->{m.lives} hits={m.boss_hits}")
 m, boss = boss_next_to_mario(3); m.punch_timer = Config.punch_duration; lives = m.lives
 lost = g._update_boss()
-check("boss not on its last hit: a punch hurts it but touching it still costs a life", boss.alive and boss.health == 2 and lost and m.lives == lives - 1,
-      f"health={boss.health} lost={lost} lives {lives}->{m.lives}")
+check("boss not on its last hit: a punch hurts it and touching it takes one heart (no life lost)", boss.alive and boss.health == 2 and not lost and m.lives == lives and m.boss_hits == 1,
+      f"health={boss.health} lost={lost} lives {lives}->{m.lives} hits={m.boss_hits}")
 
 # =============== 8b. THE LAST LEVEL HAS NO NEXT LEVEL ===============
 start(Config.max_levels, 200); no_enemies(); g.level[5].alive = False
@@ -551,7 +551,7 @@ lives0 = m.lives
 for _ in range(4):
     g.update_play()
 check("boss stomp: a fast fall onto the boss's head hurts the boss by exactly 1 HP", boss.health == hp0 - 1, f"hp {hp0} -> {boss.health}")
-check("boss stomp: ...and Mario keeps his life (the reported death after every good stomp)", m.lives == lives0 and g.state == "playing", f"lives={m.lives}")
+check("boss stomp: ...and Mario keeps his life AND all his hearts (a good stomp must cost nothing: the old bug counted it as a side hit)", m.lives == lives0 and g.state == "playing" and m.boss_hits == 0, f"lives={m.lives} hits={m.boss_hits}")
 check("boss stomp: ...and he bounces up off the boss (is above it, not inside it)", m.rect.bottom <= boss.rect.top, f"bottom={m.rect.bottom} top={boss.rect.top} vy={m.velocity_y}")
 
 # ---- D. switching heroes: all four, nobody shown twice ----
@@ -713,6 +713,143 @@ g.state = "menu"; g._build_menu(); g.selected_index = g.menu_options.index("Debu
 check("debug: ESC in the password box goes back to the menu", g.state == "menu")
 g.new_game(); check("debug: a new game is never a debug game", not g.debug_active)
 os.environ["MARIO_ENV_FILE"] = NO_ENV_FILE
+
+
+# =====================================================================================================
+# REPORTED BUGS (Python): lucky blocks, flying, boss hearts, Princess, team AI
+# =====================================================================================================
+from world_objects import LuckyBlock
+held.clear()
+
+# ---- L. Lucky blocks are items: Mario passes through them, they give the power once, and then they are gone ----
+m = start(); no_enemies()
+check("lucky block: no block is a solid (Mario can walk or jump into it)", all(s != b.rect for b in g.level[4] for s in g.solids))
+g.level[4].clear(); block = LuckyBlock(400, Config.ground_y - 38, "crush"); g.level[4].append(block)
+m.rect.x = 360; m.rect.bottom = Config.ground_y; held.add(pygame.K_RIGHT)
+frame(4)
+check("lucky block: walking into it gives the power", m.power == "crush" and block.used, f"power={m.power}")
+check("lucky block: ...Mario is NOT stopped by it", m.rect.x > 372, f"x={m.rect.x}")
+frame(12)
+check("lucky block: ...he walks right through to the other side", m.rect.x > block.rect.right, f"x={m.rect.x}")
+check("lucky block: ...and while its coin pops the block is still in the list", block in g.level[4])
+frame(45)
+check("lucky block: after the coin pop the block has DISAPPEARED", block not in g.level[4] and len(g.level[4]) == 0, len(g.level[4]))
+check("lucky block: ...the power stays", m.power == "crush" and m.power_timer > 0)
+held.clear()
+m = start(); no_enemies(); g.level[4].clear(); m.rect.x = 600
+block = LuckyBlock(m.rect.x, Config.ground_y - 100, "jump"); g.level[4].append(block)
+top = m.rect.y; down(pygame.K_SPACE)
+for _ in range(40):
+    frame(); top = min(top, m.rect.y)
+up(pygame.K_SPACE)
+check("lucky block: jumping into it from below does not bump Mario's head (his jump rises ABOVE the block)", top < block.rect.y - 20, f"highest y={top} block y={block.rect.y}")
+check("lucky block: ...he got the power", m.power == "jump")
+g.level[4].append(LuckyBlock(m.rect.x, m.rect.y, "fly"))
+frame(1); check("lucky block: a second block replaces the power", m.power == "fly")
+frame(45); check("lucky block: ...no used block is left behind", all(not b.used for b in g.level[4]))
+def box_pixels(block):
+    canvas = pygame.Surface((200, 200), pygame.SRCALPHA); block.rect.topleft = (80, 80); block.draw(canvas, 0, g.font_small)
+    return sum(1 for x in range(80, 112) for y in range(80, 112) if canvas.get_at((x, y))[:3] == (255, 180, 30))
+fresh_block = LuckyBlock(300, 300, "fly"); blk = LuckyBlock(300, 300, "fly"); blk.try_hit(); blk.coin_pop_timer = 10; g.level[4].append(blk)
+check("lucky block: a block that is waiting IS drawn as an orange box", box_pixels(fresh_block) > 200, box_pixels(fresh_block))
+check("lucky block: a block that was just taken is NOT drawn as a box any more (only the coin)", box_pixels(blk) == 0, box_pixels(blk))
+g.draw_play(); check("lucky block: the whole screen draws with a block that was just taken", True)
+for level_number in (1, 2, 3, 12, 25, 50):
+    mm = start(level_number); n0 = len(g.level[4])
+    check(f"lucky block: level {level_number} has its blocks and none is solid", n0 >= 1 and all(s != b.rect for b in g.level[4] for s in g.solids), n0)
+
+# ---- F. flying ----
+def fly_setup():
+    mm = start(); no_enemies(); held.clear(); mm.power = "fly"; mm.power_timer = Config.power_duration_frames; mm.rect.x = 50; return mm
+m = fly_setup(); y0 = m.rect.y; held.add(pygame.K_UP); frame(30)
+check("fly: holding UP lifts Mario at the fly speed (it did not lift him at all)", abs((y0 - m.rect.y) - 30 * Config.fly_speed) <= 6, f"rose {y0 - m.rect.y}px")
+held.clear(); y1 = m.rect.y; frame(20)
+check("fly: letting go makes him hover (no falling)", abs(m.rect.y - y1) <= 1 and m.velocity_y == 0, f"{y1}->{m.rect.y}")
+held.add(pygame.K_DOWN); frame(10); held.clear()
+check("fly: holding DOWN lowers him", m.rect.y - y1 >= 8 * Config.fly_speed, f"{y1}->{m.rect.y}")
+for key_name, key in (("SPACE", pygame.K_SPACE), ("W", pygame.K_w)):
+    mm = fly_setup(); y = mm.rect.y; held.add(key); frame(10); held.clear()
+    check(f"fly: {key_name} lifts him too", y - mm.rect.y >= 8 * Config.fly_speed, f"rose {y - mm.rect.y}")
+m = fly_setup(); m.rect.x = 820; held.update({pygame.K_RIGHT, pygame.K_UP}); frame(25); held.discard(pygame.K_UP); frame(40); held.clear()
+pipe_end = g.level[2][0].shaft.right
+check("fly: he can fly over the first pipe", m.rect.x > pipe_end and m.lives == 3 and g.state == "playing", f"x={m.rect.x} pipe ends {pipe_end}")
+m = fly_setup(); m.rect.x = 50; m.power_timer = 30; held.add(pygame.K_UP); frame(29); check("fly: the power is still on in its last frames", m.power == "fly")
+frame(6); check("fly: when the 3 seconds are over the power ends", m.power is None)
+y_top = m.rect.y; frame(20); held.clear()
+check("fly: ...and then gravity pulls him down again (holding UP no longer lifts him)", m.rect.y > y_top, f"{y_top}->{m.rect.y}")
+m = fly_setup(); plat = next(p for p in g.level[0][1:] if p.width >= 60); m.rect.centerx = plat.centerx; m.rect.top = plat.bottom + 40
+held.add(pygame.K_UP); frame(30); held.clear()
+check("fly: a platform above stops him (he cannot fly through solid ground)", m.rect.top >= plat.bottom, f"top={m.rect.top} platform bottom={plat.bottom}")
+
+# ---- H. boss fight: 10 hearts like the HTML game ----
+m, boss = boss_next_to_mario(5); lives = m.lives
+check("boss hearts: Mario starts a boss fight with 0 hits taken", m.boss_hits == 0)
+for hit in range(1, Config.boss_hit_limit):
+    m.invincibility_timer = 0; lost = g._update_boss()
+    if lost or m.lives != lives or m.boss_hits != hit: break
+check(f"boss hearts: {Config.boss_hit_limit - 1} touches cost hearts but NOT a life", m.boss_hits == Config.boss_hit_limit - 1 and m.lives == lives and g.state == "playing", f"hits={m.boss_hits} lives={m.lives}")
+check("boss hearts: after a hit Mario is protected for a second", m.invincibility_timer == Config.boss_hit_invincibility)
+before = m.boss_hits; g._update_boss(); check("boss hearts: touching again while protected takes nothing", m.boss_hits == before)
+m.invincibility_timer = 0; lost = g._update_boss()
+check("boss hearts: the LAST heart costs a life", lost and m.lives == lives - 1, f"lost={lost} lives={m.lives}")
+check("boss hearts: ...and the next life starts with all hearts again", g.mario.boss_hits == 0, g.mario.boss_hits)
+m, boss = boss_next_to_mario(5); m.invincibility_timer = 0
+boss.projectiles.append({"x": float(m.rect.centerx), "y": float(m.rect.centery), "velocity_x": 0.0, "velocity_y": 0.0, "life": 99, "variant": "normal"})
+lost = g._update_boss(); check("boss hearts: a shell hit also takes just one heart", not lost and m.boss_hits == 1 and not boss.projectiles, f"hits={m.boss_hits}")
+m, boss = boss_next_to_mario(5); m.rect.bottom = boss.rect.top + 6; m.rect.centerx = boss.rect.centerx; m.velocity_y = 6
+g._update_boss(); check("boss hearts: a good stomp takes no heart", m.boss_hits == 0 and boss.health == 4)
+m, boss = boss_next_to_mario(5); m.boss_hits = 0; g.draw_play(); full = g.screen.copy()
+m.boss_hits = 6; g.draw_play(); some = g.screen.copy()
+row = pygame.Rect(Config.screen_width // 2 - 110, Config.screen_height - 52, 220, 30)
+check("boss hearts: the screen shows the hearts and loses them as Mario is hit", pygame.image.tostring(full.subsurface(row), "RGB") != pygame.image.tostring(some.subsurface(row), "RGB"))
+m, boss = boss_next_to_mario(5); m.boss_hits = 4; g._lose_life()
+check("boss hearts: losing a life through any route restores the hearts", g.mario.boss_hits == 0, g.mario.boss_hits)
+
+# ---- P. the Princess stands ON the ground (she was drawn 25px into it) ----
+def lowest_row(surface):
+    mask = pygame.mask.from_surface(surface)
+    rows = [y for y in range(surface.get_height()) if any(mask.get_at((x, y)) for x in range(0, surface.get_width(), 2))]
+    return max(rows) if rows else -1
+for kind in ("luigi", "princess", "yoshi"):
+    mm = start(level=25); comp = next(c for c in g.companions if c.kind == kind)
+    canvas = pygame.Surface((300, 300), pygame.SRCALPHA); comp.rect.topleft = (120, 150); comp.frame = 0; comp.draw(canvas, 0)
+    bottom = lowest_row(canvas)
+    check(f"{kind}: the feet are on the ground line (drawn bottom {bottom}, body bottom {comp.rect.bottom})", comp.rect.bottom - 3 <= bottom <= comp.rect.bottom + 2, f"bottom row {bottom} vs {comp.rect.bottom}")
+sunk = []
+real_princess = player_module.draw_princess
+player_module.draw_princess = lambda surface, x, y, frame=0: sunk.append(y)
+mm = start(level=25); mm.active_character = "princess"; mm.invincibility_timer = 0; mm.draw(g.screen, 0)
+player_module.draw_princess = real_princess
+check("princess as the hero: she is drawn on Mario's rectangle, not 25px below it", sunk and sunk[0] == mm.rect.y - __import__("sprites").PRINCESS_SINK, sunk)
+
+# ---- A. team AI: the team gets over pipes and keeps up ----
+def team_follow(level_number, frames=4200):
+    start(level=level_number); no_enemies()
+    mm = g.mario; mm.invincibility_timer = 10 ** 7
+    if g.level[5]: g.level[5].alive = False
+    pipes = [p.shaft.left for p in g.level[2]]; fell = 0
+    for _ in range(frames):
+        if mm.rect.x < 4300:
+            mm.velocity_x = Config.player_speed; mm.facing = 1
+            if mm.on_ground and any(0 < p - mm.rect.right < 30 for p in pipes): mm.press_jump()
+        else: mm.velocity_x = 0
+        g.update_play()
+        if g.state != "playing": break
+        fell += sum(1 for c in g.companions if c.rect.y > Config.screen_height + 10)
+    return [mm.rect.x - c.rect.x for c in g.companions], fell, g.state
+for level_number in (11, 21, 31, 41, 50):
+    lags, fell, state = team_follow(level_number)
+    check(f"team AI: level {level_number}: every team member gets past all the pipes and catches up with Mario", state == "playing" and fell == 0 and all(l < 260 for l in lags), f"lags={lags} fell={fell} state={state}")
+start(level=11); no_enemies(); mm = g.mario; mm.invincibility_timer = 10 ** 7; pipe = g.level[2][0]
+mm.rect.x = pipe.shaft.right + 200; mm.rect.bottom = Config.ground_y
+for c in g.companions: c.rect.x = pipe.shaft.left - 200 + 30 * g.companions.index(c); c.rect.bottom = Config.ground_y
+trail = []
+for _ in range(500):
+    mm.velocity_x = 0; g.update_play(); trail.append(g.companions[0].rect.x)
+check("team AI: a team member in front of a pipe jumps OVER it (it used to hop on the spot in front of it for ever)", all(c.rect.left > pipe.shaft.right for c in g.companions), [c.rect.x for c in g.companions])
+check("team AI: ...and none of them is stuck on top of it", not any(c._on_pipe_rim(g.level[2]) for c in g.companions))
+check("team AI: ...they did not just hop in place (x kept increasing)", trail[-1] - trail[0] > 250, trail[-1] - trail[0])
+held.clear()
 
 fails = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(fails)}/{len(results)} checks passed")

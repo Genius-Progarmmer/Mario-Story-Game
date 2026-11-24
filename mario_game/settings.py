@@ -40,6 +40,10 @@ class Config:
     companion_jump_speed    = -13.0
     companion_near_distance    = 50
     companion_far_distance     = 130
+    companion_jump_speed_2     = -11.0   # 2nd jump of a team member climbing over a pipe (from its rim)
+    companion_jump_speed_3     = -9.0    # 3rd jump
+    companion_wall_look_ahead  = 22      # how far ahead a team member looks for a wall before it starts a jump
+    companion_clear_rise       = 26      # it must rise this much before it moves forward over an obstacle
     companion_edge_look_ahead = 22
 
     # --- Level generation spacing ---
@@ -70,8 +74,10 @@ class Config:
     player_width, player_height = 32, 38
     power_jump_speed = -22             # first jump while the "jump" power is active
     power_double_jump_speed = -19      # second jump while the "jump" power is active
-    fly_lift = 0.5                     # how fast the "fly" power pulls Mario upward
-    fly_max_rise_speed = -3.0          # ...and the fastest upward speed it can reach
+    fly_speed = 4.5                    # "fly" power: Mario rises at this speed while UP / SPACE / W is held, sinks while DOWN / S is held,
+                                       # and hovers otherwise (gravity is switched off). Same as the HTML game.
+    boss_hit_limit = 10                # in a boss fight Mario can take this many hits before he loses a life (HTML game: 10 hearts)
+    boss_hit_invincibility = 60        # frames of protection after each hit
     jump_release_damping = 0.82        # upward speed is multiplied by this when jump is released early
     squash_on_jump = -0.8              # sprite stretch / squash amounts (purely visual)
     squash_on_landing = 0.6

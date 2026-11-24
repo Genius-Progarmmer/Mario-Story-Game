@@ -24,6 +24,11 @@ def draw_heart(surface, center_x, center_y, size=13, color=red, beat=0.0):
         pygame.draw.polygon(surface, (255, 110, 130), highlight_points)
 
 
+# The Princess sprite is taller than a Mario-sized body: her shoes are drawn 25px below the body rectangle's bottom.
+# Callers that draw her on a character's rectangle subtract this, so she stands ON the ground instead of sinking into it.
+PRINCESS_SINK = 25
+
+
 def draw_princess(screen, x, y, frame=0):
     bob = int(math.sin(frame*.08)*3)
     pygame.draw.polygon(screen,pink,[(x+12,y+22+bob),(x+2,y+60+bob),(x+30,y+60+bob),(x+20,y+22+bob)])

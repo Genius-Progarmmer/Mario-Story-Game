@@ -12,7 +12,7 @@ from settings import (
 )
 from utils import draw_rect, draw_circle, move_with_collision
 from effects import spawn_particles, spawn_dash_trail
-from sprites import draw_luigi, draw_princess, draw_yoshi
+from sprites import draw_luigi, draw_princess, draw_yoshi, PRINCESS_SINK
 
 normal_palette = {
     "hat": (200, 20, 20),
@@ -67,6 +67,8 @@ class Mario:
         self.frame_count = 0
         self.power = None
         self.power_timer = 0
+        self.fly_input = 0               # -1 = rise (UP / SPACE / W held), +1 = sink (DOWN / S held), 0 = hover
+        self.boss_hits = 0               # hits taken in the current boss fight (reset on every life, like the HTML game)
         self.punch_timer = 0
         self.active_character = "mario"
 
@@ -110,6 +112,8 @@ class Mario:
         """
         self.velocity_x = self.velocity_y = 0.0
         self.subpixel_x = self.subpixel_y = 0.0
+        self.boss_hits = 0               # a new life starts the boss fight with all hearts again
+        self.fly_input = 0
         self.on_ground = True            # he is standing on the ground right now
         self.was_on_ground = True        # ...so no "landing" squash or dust puff on the first frame
         self.jumps_left = 2              # both jumps are available immediately
@@ -152,8 +156,8 @@ class Mario:
     def update(self, solids):
         self.frame_count += 1
         self._tick_timers()
-        self._apply_fly_power()
-        self._apply_jump_and_gravity()
+        if not self._apply_fly_power():
+            self._apply_jump_and_gravity()   # while flying there is no gravity
         self._animate_squash()
         self._move_and_collide(solids)
         self._animate_walk()
@@ -176,10 +180,17 @@ class Mario:
             spawn_dash_trail(self.rect.x, self.rect.y, self.facing)
 
     def _apply_fly_power(self):
-        """Fly power: constant lift, and jumps are refilled so Mario can keep rising."""
-        if self.power == "fly":
-            self.velocity_y = max(self.velocity_y - Config.fly_lift, Config.fly_max_rise_speed)
-            self.jumps_left = 2
+        """Fly power (same as the HTML game): no gravity. Mario rises while UP / SPACE / W is held, sinks while
+        DOWN / S is held and hovers otherwise. Returns True while the power is active.
+
+        (It used to push up by 0.5 per frame while gravity pulled down by 0.75, so Mario never rose at all.)
+        """
+        if self.power != "fly":
+            return False
+        self.velocity_y = self.fly_input * Config.fly_speed
+        self.jumps_left = 2
+        self.jump_held = False
+        return True
 
     def _apply_jump_and_gravity(self):
         """Variable jump height plus gravity (stronger on the way down, so jumps feel snappy)."""
@@ -336,7 +347,7 @@ class Mario:
         if self.active_character == "luigi":
             draw_luigi(screen, x, y, self.facing, self.walk_frame)
         elif self.active_character == "princess":
-            draw_princess(screen, x, y, self.walk_frame)
+            draw_princess(screen, x, y - PRINCESS_SINK, self.walk_frame)
         elif self.active_character == "yoshi":
             draw_yoshi(screen, x, y, self.facing, self.walk_frame)
         else:

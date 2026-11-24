@@ -591,6 +591,32 @@ const baseState=()=>{keys.ArrowLeft=keys.ArrowRight=keys.Space=false;};
   window.DEBUG_PASSWORD=had;
 }
 
+// ---- J. LUCKY BLOCKS: an item that gives its power once and then DISAPPEARS (and never blocks anybody) ----
+{
+  for(const n of [1,2,3,12,25,50]){const L=buildLv(n,50);T('J lucky block: level '+n+' has blocks and none of them is a solid (nobody is blocked by them)', L.lbs.length>=1&&L.lbs.every(b=>!L.solids.includes(b.rect)), L.lbs.length);}
+  newGame(); frames(2); level.enemies.length=0; level.lbs.length=0;
+  const lb=new LB(600,GY-38,'crush'); level.lbs.push(lb);
+  mario.rect.x=560; mario.rect.y=GY-38; mario.vy=0; keys.ArrowRight=true;
+  for(let i=0;i<12;i++)update(); keys.ArrowRight=false;
+  T('J lucky block: walking into it gives the power', mario.power==='crush'&&lb.used, mario.power);
+  T('J lucky block: ...Mario walks straight through it', mario.rect.x>lb.rect.x+10, mario.rect.x);
+  T('J lucky block: ...while its power label is still showing, the block is still in the list', level.lbs.includes(lb));
+  drawPlay(); T('J lucky block: the whole screen draws with a block that was just taken', true);
+  for(let i=0;i<70;i++)update();
+  T('J lucky block: after the label has faded the block has DISAPPEARED', !level.lbs.includes(lb)&&level.lbs.length===0, level.lbs.length);
+  T('J lucky block: ...and the power stays with Mario', mario.power==='crush'&&mario.powerT>0);
+  // a block cannot be used twice
+  level.lbs.push(new LB(900,GY-38,'fly')); mario.rect.x=880; for(let i=0;i<3;i++)update();
+  T('J lucky block: the next block replaces the power', mario.power==='fly');
+  for(let i=0;i<70;i++)update(); T('J lucky block: ...and it disappears too', level.lbs.length===0);
+  // an enemy walks straight through a lucky block (it is no wall for enemies). The block is one that the level itself built.
+  newGame(); frames(2); level.enemies.length=0; const own=level.lbs[0]; level.lbs.length=0; level.lbs.push(own); own.rect.x=740; own.rect.y=GY-30;
+  level.pipes.length=0; level.solids=level.solids.filter(s=>s===level.platforms[0]||s===own.rect);   // flat ground: only the block could stop him
+  const e=new Mush(700,GY-32,300); e.dir=1; level.enemies.push(e); mario.rect.x=0; mario.inv=99999;
+  for(let i=0;i<90;i++)update();
+  T('J lucky block: an enemy walks through a lucky block (it is no wall for enemies)', e.rect.x>790, e.rect.x);
+}
+
 // ---- randomised soak: no exceptions, no NaN, saves always valid ----
 let seed=12345; const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
 let soakOk=true,soakMsg='';

@@ -81,13 +81,15 @@ never wipes your save by accident); `↑` / `↓` move to NEW GAME.
 - Jump on an enemy's head or punch it to defeat it. Touching it from the side costs a life.
 - You start with **3 lives**. After a death you come back at the last checkpoint with a short
   moment of invincibility. When all lives are gone it is GAME OVER.
-- Hit a **Lucky Block** from below (or touch it from the side) to get a power for 3 seconds:
-  `fly`, `crush` or `jump`. The game logic always runs at 60 steps per real second, even if the screen
+- A **Lucky Block** is an item, not a wall: walk or jump straight into it (from any side). The first touch gives a power
+  for 3 seconds (`fly`, `crush` or `jump`) and the block **disappears**. Nothing is blocked by it (not Mario, not the
+  enemies, not your team). The game logic always runs at 60 steps per real second, even if the screen
   can only draw 30 frames per second, so a power really lasts 3 seconds and the game does not slow down
   (only a freeze longer than one second is dropped instead of caught up).
   `crush` defeats only enemies that are **close**: less than 90 px away horizontally **and** less than 60 px
   vertically (centre to centre). An enemy far above or below you is never hit. The range is the same when
   the power starts and for as long as it lasts.
+  `fly`: no gravity. Hold `↑` / `W` / `Space` to rise, `↓` / `S` to sink; let go and you hover. A platform above stops you.
 - **Checkpoints** save your progress automatically (a new level is saved too). The game only says it saved when
   the save really worked: after writing, the file / browser storage is read back and compared. If it fails you
   see a clear message (`SAVE FAILED ...`), and **Save & quit** keeps you in the paused game instead of saying `SAVED!`. Starting a **New Game** replaces the old save,
@@ -98,10 +100,14 @@ never wipes your save by accident); `↑` / `↓` move to NEW GAME.
   pipes or blocks, however far away you run. A good stomp never costs a life (in the Python version a stomp also puts
   you on top of the boss, because a fast fall used to sink Mario into it and the next frame counted as a side touch).
 - The last level of each chapter (10, 20, 30, 40, 50) has a **boss**. Stomp it or punch it (each hit takes
-  1 HP); the goal stays locked until it is defeated. Watch out for its shells. (In `web.html` the boss
-  attacks with punches instead of shells, and you can take 10 hits before losing a life. A boss that your
-  last hit defeats can no longer hurt you.)
+  1 HP); the goal stays locked until it is defeated. Watch out for its shells. **In both versions you have
+  10 hearts in a boss fight** (shown as `YOUR HEARTS`): every hit by the boss or a shell takes one heart and gives
+  you a second of protection, and only the last heart costs a life. After a lost life you start again with all
+  hearts. (In `web.html` the boss attacks with punches instead of shells. A boss that your last hit defeats can
+  no longer hurt you.)
 - Every 10 levels is a new chapter. Luigi and the Princess join you from level 11 (chapter 2) and Yoshi from level 21 (chapter 3).
+  They are AI followers: they walk after you, jump over gaps, walls and **pipes** (they jump up, wait until they are above
+  the obstacle, move forward, and jump again from the top of a pipe to get down), and jump up to you when you are higher.
 
 ## Tests
 

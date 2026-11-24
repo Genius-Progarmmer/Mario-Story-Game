@@ -275,6 +275,7 @@ class Game:
         self.pipe_dying = True
         self.mario.pipe_sink_timer = Config.pipe_sink_frames
         self.mario.pipe_sink_start_y = self.mario.rect.y
+        self.mario.fly_input = 0
         self.mario.velocity_x = 0
         self.mario.velocity_y = 0
 
@@ -440,9 +441,16 @@ class Game:
     def _apply_held_movement_keys(self):
         """Walking follows the keys that are held down (a dash keeps its own speed)."""
         mario = self.mario
+        keys = pygame.key.get_pressed()
+        # With the fly power UP / SPACE / W lift Mario and DOWN / S lower him (nothing else uses this).
+        if any(keys[key] for key in JUMP_KEYS):
+            mario.fly_input = -1
+        elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            mario.fly_input = 1
+        else:
+            mario.fly_input = 0
         if mario.dashing:
             return
-        keys = pygame.key.get_pressed()
         if any(keys[key] for key in LEFT_KEYS):
             mario.velocity_x = -Config.player_speed
             mario.facing = -1
@@ -553,7 +561,7 @@ class Game:
     def _update_characters_and_effects(self):
         self.mario.update(self.solids)
         for companion in self.companions:
-            companion.update(self.mario, self.solids)
+            companion.update(self.mario, self.solids, self.level[2])
         self.camera.update(self.mario.rect.x)
         self._beat_heart()
         for particle in particles[:]:
@@ -569,27 +577,23 @@ class Game:
 
     # ----- Lucky blocks and checkpoints -----
     def _update_lucky_blocks(self):
-        """First touch of a block gives a timed power-up (3 seconds).
-
-        Blocks are solid, so Mario's rectangle only ever *touches* them and never overlaps; that is
-        why the touch test looks a pixel around him.
-        """
-        touch_area = self.mario.rect.inflate(
-            2 * Config.block_touch_margin, 2 * Config.block_touch_margin
-        )
-        for lucky_block in self.level[4]:
+        """A Lucky Block is an item, not a wall: Mario can walk or jump straight into it. The first touch gives a
+        timed power-up (3 seconds) and the block DISAPPEARS (after a short coin-pop animation)."""
+        blocks = self.level[4]
+        for lucky_block in blocks:
             lucky_block.update()
-            if lucky_block.used or not touch_area.colliderect(lucky_block.rect):
+            if lucky_block.used or not self.mario.rect.colliderect(lucky_block.rect):
                 continue
             if lucky_block.try_hit():
                 self._give_power(lucky_block)
+        blocks[:] = [block for block in blocks if not (block.used and block.coin_pop_timer == 0)]
 
     def _give_power(self, lucky_block):
         mario = self.mario
-        if mario.velocity_y < 0:
-            mario.velocity_y = Config.block_bump_speed  # bumped the head: bounce back down
         mario.power = lucky_block.reward
         mario.power_timer = Config.power_duration_frames
+        if lucky_block.reward == "fly":
+            mario.velocity_y = -4  # a little lift as the wings appear (like the HTML game)
         spawn_particles(lucky_block.rect.centerx, lucky_block.rect.top, gold, count=8, spread=4)
         self.camera.shake(Config.shake_block)
         self.flash = (f"★ {lucky_block.reward.upper()} POWER!", Config.flash_frames_power)
@@ -748,8 +752,21 @@ class Game:
             )
             if mario.rect.colliderect(shell_rect) and mario.invincibility_timer == 0:
                 boss.projectiles.remove(shell)
-                self._lose_life()
-                return True
+                return self._boss_hits_mario(Config.shake_boss_hit)
+        return False
+
+    def _boss_hits_mario(self, shake):
+        """The HTML game's rule: in a boss fight Mario has Config.boss_hit_limit (10) hearts. Every hit takes one heart and
+        gives a second of protection; only the last heart costs a life. Returns True when that hit cost a life."""
+        mario = self.mario
+        mario.boss_hits += 1
+        self.camera.shake(shake)
+        spawn_particles(mario.rect.centerx, mario.rect.top, red, count=8, spread=4)
+        if mario.boss_hits >= Config.boss_hit_limit:
+            self._lose_life()
+            return True
+        mario.invincibility_timer = Config.boss_hit_invincibility
+        self.flash = (f"Hit {mario.boss_hits}/{Config.boss_hit_limit}", 60)
         return False
 
     def _damage_boss(self, boss):
@@ -788,8 +805,7 @@ class Game:
             self._damage_boss(boss)
             return False
         if mario.invincibility_timer == 0:
-            self._lose_life()
-            return True
+            return self._boss_hits_mario(Config.shake_boss_hit + 2)
         return False
 
     # ----- Goal, pits and messages -----
@@ -934,6 +950,15 @@ class Game:
         if boss and boss.alive:
             boss_text = self.font_medium.render("BOSS! JUMP ON HEAD!", True, red)
             self.screen.blit(boss_text, boss_text.get_rect(center=(Config.screen_width // 2, 28)))
+            hearts_left = Config.boss_hit_limit - self.mario.boss_hits
+            first_x = Config.screen_width // 2 - (Config.boss_hit_limit - 1) * 17 // 2
+            row_y = Config.screen_height - 38
+            for index in range(Config.boss_hit_limit):
+                full = index < hearts_left
+                beat = self.heart_beat if index == hearts_left - 1 else 0.0
+                draw_heart(self.screen, first_x + index * 17, row_y, 8, red if full else (58, 16, 16), beat)
+            label = self.font_extra_small.render("YOUR HEARTS", True, red)
+            self.screen.blit(label, label.get_rect(center=(Config.screen_width // 2, row_y - 14)))
         if self.flash:
             flash_surface = self.font_small.render(self.flash[0], True, yellow)
             flash_surface.set_alpha(min(255, self.flash[1] * 4))

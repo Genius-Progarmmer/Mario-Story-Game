@@ -246,7 +246,7 @@ def collect_solids(level):
     solids = list(platforms)
     for pipe in pipes:
         solids.extend((pipe.shaft, pipe.lip_center))
-    solids.extend(block.rect for block in lucky_blocks)
+    # (Lucky Blocks are NOT solid: they are items Mario can walk or jump into, see Game._update_lucky_blocks)
     return solids
 
 

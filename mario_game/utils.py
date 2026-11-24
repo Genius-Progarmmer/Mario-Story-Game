@@ -117,8 +117,8 @@ def ground_ahead(rect, solids, direction_x):
     return any(probe.colliderect(solid) for solid in solids)
 
 
-def wall_ahead(rect, solids, direction_x):
-    """Is there a wall in front of the entity?"""
-    probe_x = rect.x + (rect.w + 2 if direction_x > 0 else -10)
+def wall_ahead(rect, solids, direction_x, look_distance=2):
+    """Is there a wall in front of the entity (within look_distance pixels)?"""
+    probe_x = rect.x + (rect.w + look_distance if direction_x > 0 else -8 - look_distance)
     probe = pygame.Rect(probe_x, rect.y + 4, 8, rect.h - 8)
     return any(probe.colliderect(solid) for solid in solids)

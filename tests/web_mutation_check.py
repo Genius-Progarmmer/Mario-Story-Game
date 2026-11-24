@@ -77,6 +77,8 @@ MUTANTS = [
  ("D  debug: the DEBUG button shows without a password", "if(debugPw())o.push('debug');", "o.push('debug');"),
  ("D  debug: the password box opens without a password", "  if(!debugPw())return;", "  "),
  ("D  debug: a cleared level goes on to the next level", "if(debugActive){debugReturn('LEVEL '+curLv+' CLEARED');return;}", "if(false){debugReturn('LEVEL '+curLv+' CLEARED');return;}"),
+ ("L  a taken lucky block stays in the level",       "level.lbs=level.lbs.filter(lb=>!(lb.used&&lb.popT===0));", ""),
+ ("L  lucky blocks are solid walls again",           "  // (Lucky Blocks are items, not walls: nobody is blocked by them. A taken block disappears, see update())\n", "  lbs.forEach(lb=>solids.push(lb.rect));\n"),
  ("8  a failed new-level autosave is hidden",       "if(!sg(curLv,START_LIVES,null,unlockedMax,null,0))flash=", "sg(curLv,START_LIVES,null,unlockedMax,null,0);if(false)flash="),
 ]
 

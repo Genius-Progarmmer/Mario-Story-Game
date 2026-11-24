@@ -97,8 +97,11 @@ async function startGame(page, w, h) {
     T('touch: tapping the jump button makes Mario jump', (await g(page, 'mario.rect.y')) < y0 - 10, `${y0} -> ${await g(page, 'mario.rect.y')}`);
     await sleep(900);
     // punch
-    await page.touchscreen.tap(pu.cx, pu.cy); await sleep(60);
-    T('touch: tapping the punch button punches', await g(page, 'mario.punching===true||mario.punchT>0'));
+    // A punch lasts only 0.3 s. On a slow machine the page can stall for longer than that between the tap and a check, so the
+    // check does not look at "is he punching right now" but at "was the punch command received" (the call is recorded).
+    await page.evaluate(`window.__punched=false;const _p=mario.punch.bind(mario);mario.punch=function(){window.__punched=true;return _p();};`);
+    await page.touchscreen.tap(pu.cx, pu.cy); await waitUntil(page, `window.__punched===true`);
+    T('touch: tapping the punch button punches', await g(page, 'window.__punched===true'));
     await sleep(500);
     // two fingers: hold the stick right AND press jump
     const xa = await g(page, 'mario.rect.x'); const a = await page.touchscreen.touchStart(st.cx, st.cy); await a.move(st.cx + st.w * 0.4, st.cy);
@@ -245,6 +248,25 @@ async function startGame(page, w, h) {
     await page.evaluate(`window.DEBUG_PASSWORD=undefined; showMenu();`);
     T('debug (browser): without a password the DEBUG button disappears', await vis('btnDebug') === 'none');
     T('debug (browser): no JavaScript error', page.errors.length === 0, page.errors.join('|'));
+    await page.close();
+  }
+  // ================= lucky block in the real browser: a waiting block is a box, a taken block is gone =================
+  {
+    const page = await open(browser, 1280, 720, { touch: false });
+    await page.evaluate(`newGame();`); await waitUntil(page, `STATE==='playing'`);
+    const colourAt = (x, y) => page.evaluate(`(()=>{const d=ctx.getImageData(${x},${y},1,1).data;return [d[0],d[1],d[2]];})()`);
+    // Put one block right in front of the camera, with no enemies, and look at its pixels.
+    await page.evaluate(`level.enemies.length=0;level.lbs.length=0;mario.rect.x=200;mario.rect.y=GY-38;mario.inv=99999;
+      const b=new LB(mario.rect.x+300,GY-38,'fly');level.lbs.push(b);window.__b=b;drawPlay();`);
+    const pos = await page.evaluate(`({sx:Math.round(__b.rect.x-camX),sy:Math.round(__b.rect.y)})`);
+    const edge = await colourAt(pos.sx + 1, pos.sy + 16);       // the middle of the box's left edge: its dark orange border
+    T('lucky block (browser): a waiting block is drawn as an orange box', edge[0] > 150 && edge[1] > 90 && edge[2] < 60, edge.join(','));
+    await page.evaluate(`__b.hit();drawPlay();`);
+    const after = await colourAt(pos.sx + 1, pos.sy + 16);
+    T('lucky block (browser): once taken, the box is NOT drawn any more', !(after[0] > 150 && after[1] > 90 && after[2] < 60), after.join(','));
+    await page.evaluate(`for(let i=0;i<80;i++)update();`);
+    T('lucky block (browser): ...and it is removed from the level', await g(page, `level.lbs.length===0`));
+    T('lucky block (browser): no JavaScript error', page.errors.length === 0, page.errors.join('|'));
     await page.close();
   }
   await browser.close();

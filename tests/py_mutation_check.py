@@ -32,6 +32,20 @@ MUTANTS = [
  ("D  debug: the DEBUG button shows without a .env", "game.py", "        if debug_password() is not None:  # the DEBUG button", "        if True:  # the DEBUG button"),
  ("D  debug: playing a debug level overwrites the real save", "game.py", "        if self.debug_active:\n            return True  # debug mode must never change the real save\n", ""),
  ("D  debug: a cleared level goes on to the next level", "game.py", "        if self.debug_active:  # in debug mode a cleared level", "        if False:  # in debug mode a cleared level"),
+ # ---- the six reported bugs ----
+ ("F  flying: gravity keeps pulling while flying",        "player.py", "        if not self._apply_fly_power():\n            self._apply_jump_and_gravity()   # while flying there is no gravity", "        self._apply_fly_power()\n        self._apply_jump_and_gravity()"),
+ ("F  flying: the keys do not lift Mario",                "player.py", "        self.velocity_y = self.fly_input * Config.fly_speed", "        self.velocity_y = 0"),
+ ("F  flying: the held UP key is never read",             "game.py", "        if any(keys[key] for key in JUMP_KEYS):\n            mario.fly_input = -1", "        if False:\n            mario.fly_input = -1"),
+ ("L  lucky block is a solid wall again",                 "level.py", "    # (Lucky Blocks are NOT solid: they are items Mario can walk or jump into, see Game._update_lucky_blocks)\n", "    solids.extend(block.rect for block in lucky_blocks)\n"),
+ ("L  a taken lucky block stays in the level",            "game.py", "        blocks[:] = [block for block in blocks if not (block.used and block.coin_pop_timer == 0)]\n", ""),
+ ("L  a taken lucky block is still drawn as a box",       "world_objects.py", "        if not self.used:   # once it has been touched the block is gone", "        if True:   # once it has been touched the block is gone"),
+ ("H  boss: the first hit costs a life",                  "game.py", "        if mario.boss_hits >= Config.boss_hit_limit:", "        if True:"),
+ ("H  boss: no protection after a hit",                   "game.py", "        mario.invincibility_timer = Config.boss_hit_invincibility\n        self.flash = (f\"Hit", "        self.flash = (f\"Hit"),
+ ("H  boss: hearts are not restored on a new life",       "player.py", "        self.boss_hits = 0               # a new life starts the boss fight with all hearts again\n", ""),
+ ("H  boss: the hearts are not drawn",                    "game.py", "            for index in range(Config.boss_hit_limit):\n                full = index < hearts_left", "            for index in range(0):\n                full = index < hearts_left"),
+ ("P  the Princess sinks 25px into the ground",           "sprites.py", "PRINCESS_SINK = 25", "PRINCESS_SINK = 0"),
+ ("A  team members hop on the spot in front of a pipe",   "companions.py", "            self.velocity_x = self.clear_direction * Config.companion_speed if risen > Config.companion_clear_rise else 0", "            self.velocity_x = 0"),
+ ("A  team members never jump over an obstacle",          "companions.py", "        self.velocity_y = Config.companion_jump_speed\n        self.jumps_left = 2\n        self.clearing = True", "        self.velocity_y = 0\n        self.jumps_left = 2\n        self.clearing = True"),
  ("6  switching heroes leaves a twin on screen", "game.py", "                companion.appearance = current\n", "                pass\n"),
  ("6  the Princess / Yoshi cannot be chosen", "game.py", "        unlocked = [\"mario\"] + [companion.kind for companion in self.companions]",
   "        unlocked = [\"mario\"] + [companion.kind for companion in self.companions if companion.kind == \"luigi\"]"),
@@ -55,8 +69,21 @@ if classify(code, out, timed_out) != "passed":
     print("\n".join(out.splitlines()[-8:])); sys.exit(2)
 print("baseline: unchanged source passes every check")
 
+# MUT_SLICE="0:12" runs only some of the mutants (to split the work over several processes); the whole list is the default.
+_lo, _hi = (os.environ.get("MUT_SLICE") or f"0:{len(MUTANTS)}").split(":")
+SELECTED = MUTANTS[int(_lo):int(_hi)]
+# MUT_RESUME=file : every verdict is appended to that file, and mutants already CAUGHT there are not run again, so a run that
+# gets killed half way can simply be started again.
+import json
+RESUME = os.environ.get("MUT_RESUME")
+done = {}
+if RESUME and os.path.exists(RESUME):
+    for line in open(RESUME):
+        entry = json.loads(line); done[entry["name"]] = entry["verdict"]
 caught = missed = not_run = 0
-for name, filename, fixed, bug in MUTANTS:
+for name, filename, fixed, bug in SELECTED:
+    if done.get(name) == "failed":
+        caught += 1; print(f"caught  {name:62s} -> (already caught in an earlier run)"); continue
     work = tempfile.mkdtemp(); copy = os.path.join(work, "src"); shutil.copytree(SRC, copy, ignore=shutil.ignore_patterns("__pycache__"))
     path = os.path.join(copy, filename); text = open(path, encoding="utf-8").read()
     if text.count(fixed) < 1:
@@ -66,11 +93,13 @@ for name, filename, fixed, bug in MUTANTS:
     verdict = classify(code, out, timed_out)
     failed = [l[5:].split("  [")[0] for l in out.splitlines() if l.startswith("FAIL ")]
     shutil.rmtree(work, ignore_errors=True)
+    if RESUME:
+        open(RESUME, "a").write(json.dumps({"name": name, "verdict": verdict}) + "\n")
     if verdict == "failed":
         caught += 1; print(f"caught  {name:62s} -> {len(failed)} failing check(s); e.g. {failed[0]}")
     elif verdict == "passed":
         missed += 1; print(f"MISSED  {name}")
     else:
         not_run += 1; print(f"NOT RUN {name}: the test did not run to its end (crash / timeout) - this proves nothing\n        " + (out.strip().splitlines() or ["(no output)"])[-1][:150])
-print(f"\n{caught}/{len(MUTANTS)} re-introduced bugs were caught" + (f", {missed} missed" if missed else "") + (f", {not_run} NOT RUN" if not_run else ""))
-sys.exit(0 if caught == len(MUTANTS) else 1)
+print(f"\n{caught}/{len(SELECTED)} re-introduced bugs were caught" + (f", {missed} missed" if missed else "") + (f", {not_run} NOT RUN" if not_run else ""))
+sys.exit(0 if caught == len(SELECTED) else 1)

@@ -887,10 +887,7 @@ class LB{
       fr('rgba(255,255,255,.5)',sx+2,sy+2,8,4);fr('rgba(255,255,255,.3)',sx+2,sy+6,3,6);
       
       ctx.save();ctx.globalAlpha=.15+.1*Math.abs(Math.sin(this._t*.1));ctx.fillStyle='#ffd700';ctx.beginPath();ctx.arc(sx+TILE/2,sy+TILE/2,TILE*.8,0,Math.PI*2);ctx.fill();ctx.restore();
-    }else{
-      fr('#666',sx,sy,TILE,TILE);fr('#555',sx+2,sy+2,TILE-4,TILE-4);
-      ctx.strokeStyle='#888';ctx.lineWidth=2;ctx.strokeRect(sx,sy,TILE,TILE);
-    }
+    }   // once taken the block is gone: only the power label below is still drawn
     if(this.popT>0&&this.power){
       const alpha=Math.min(1,this.popT/18);
       const pc2={fly:'#00c8ff',crush:'#ff5000',jump:'#50ff50'}[this.power];
@@ -1422,7 +1419,7 @@ function buildLv(n,playerX=50){
   }
   const solids=[...platforms];
   pipes.forEach(p=>solids.push(p.shaft,p.lip));
-  lbs.forEach(lb=>solids.push(lb.rect));
+  // (Lucky Blocks are items, not walls: nobody is blocked by them. A taken block disappears, see update())
   return{platforms,enemies,pipes,cps,lbs,boss,goal,ch,solids};
 }
 
@@ -1984,6 +1981,7 @@ function update(){
     if(mario.power===P_CRUSH)crushNearby();
     
     for(const lb of level.lbs){lb.upd();if(!lb.used&&lb.colAny(mario.rect)){const pw=lb.hit();if(pw){mario.vy=mario.vy<0?2:mario.vy;applyPower(pw);}}}
+    level.lbs=level.lbs.filter(lb=>!(lb.used&&lb.popT===0));   // a taken Lucky Block disappears (after its label has faded)
     
     for(const c of level.cps){c.upd();if(!c.on&&ov(mario.rect,c.rect)){c.on=true;cpX=c.wx;const saved=sg(curLv,mario.lives,cpX,unlockedMax,mario.power,mario.powerT);flash=saved?{t:'✔ CHECKPOINT!',d:80}:{t:'CHECKPOINT - but SAVE FAILED!',d:220};}}
     
